@@ -25,6 +25,14 @@ class EOS(metaclass=ABCMeta):
     def h_from_rho(self, rho):
         pass
 
+    @abstractmethod
+    def Omega2(self, Phi, Psi):
+        pass
+
+    @abstractmethod
+    def C(self, Phi, Psi):
+        pass
+
 
 class Polytrope(EOS):
     """ Polytrope equation of state """
@@ -36,6 +44,8 @@ class Polytrope(EOS):
         self.initialized = True
         self.K = parameters['K']
         self.N = parameters['N']
+        self.A = parameters['A']
+        self.B = parameters['B']
 
     def p_from_rho(self, rho):
         """ eq4 """
@@ -58,6 +68,20 @@ class Polytrope(EOS):
 
         return (1 + self.N) * self.p_from_rho(rho) / rho
 
+    def Omega2(self, Phi, Psi):
+        """ eq 16 """
+        if not self.initialized:
+            raise Exception("EOS not initialized")
+
+        return - (Phi(self.A) - Phi(self.B)) / (Psi(self.A) - Psi(self.B))
+
+    def C(self, Phi, Psi):
+        """ eq 17 """
+        if not self.initialized:
+            raise Exception("EOS not initialized")
+
+        return Phi(self.A) + self.Omega2(Phi, Psi) * Psi(self.A)
+
 
 class WD_matter(EOS):
     """ Equation of state for a white dwarf with zero temperature """
@@ -70,6 +94,8 @@ class WD_matter(EOS):
         self.a = parameters['a']
         self.b = parameters['b']
         self.x = parameters['x']
+        self.A = parameters['A']
+        self.B = parameters['B']
 
     def p_from_rho(self, rho):
         """ eq 6 """
@@ -92,3 +118,17 @@ class WD_matter(EOS):
             raise Exception("EOS not initialized")
 
         return (8 * self.a / self.b) * (1 + (rho / self.b)**(2 / 3))**0.5
+
+    def Omega2(self, Phi, Psi):
+        """ eq 20 """
+        if not self.initialized:
+            raise Exception("EOS not initialized")
+
+        return - (Phi(self.A) - Phi(self.B)) / (Psi(self.A) - Psi(self.B))
+
+    def C(self, Phi, Psi):
+        """ eq 21 """
+        if not self.initialized:
+            raise Exception("EOS not initialized")
+
+        return 8 * self.a / self.b + Phi(self.A) + self.Omega2(Phi, Psi) * Psi(self.A)
