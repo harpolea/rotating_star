@@ -1,11 +1,19 @@
+from abc import ABCMeta, abstractmethod
 import numpy as np
 from scipy.special import lpmn, factorial
 from scipy.integrate import quad
 
-class SCF(object):
+class Solver(metaclass=ABCMeta):
 
     def __init__(self, star):
         star.star = star
+
+    @abstractmethod
+    def solve(self):
+        pass
+
+
+class SCF(Solver):
 
     def step(self):
         """ Implements self-consistent field algorithm """
@@ -33,7 +41,7 @@ class SCF(object):
 
             for t in range(0, K - 2, 2):
                 sum += (1 / 6) * (mu[t + 2] - mu[t]) * (lpmn(l, m, mu[t]) * D1(t, s, m) +
-                                                        4 * lpmn(l, m, mu[t+1]) * D1(t + 1, s, m) +
+                                                        4 * lpmn(l, m, mu[t + 1]) * D1(t + 1, s, m) +
                                                         lpmn(l, m, mu[t + 2]) * D1(t + 2, s, m))
 
             return 2 * sum

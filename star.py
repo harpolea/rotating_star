@@ -1,12 +1,12 @@
 import numpy as np
 
 import eos
-from scf import SCF
+from solvers import SCF
 
 
 class Star(object):
 
-    def __init__(self, rotation_law, _eos, mesh_size, rmax=1.05, G=1):
+    def __init__(self, rotation_law, _eos, solver, mesh_size, rmax=1.05, G=1):
         """
         Constructor
         """
@@ -17,6 +17,9 @@ class Star(object):
         eoses = {"polytrope": eos.Polytrope, "wd": eos.WD_matter}
 
         self.eos = eoses[_eos]
+
+        solvers = {"SCF": SCF}
+        self.solver = solvers[solver]
 
         self.G = G
 
@@ -47,16 +50,14 @@ class Star(object):
         self.C = np.zeros(self.mesh_size)
 
     def initialize_star(self, parameters):
-            self.eos.initialize_eos(parameters)
+        self.eos.initialize_eos(parameters)
 
     def solve_star(self):
         # make a guess for rho
-        self.rho[:,:,:] = 1
+        self.rho[:, :, :] = 1
 
-        scf = SCF(self)
-        scf.solve()
-
-
+        solver = self.solver(self)
+        solver.solve()
 
     @staticmethod
     def rigid_rotation(r, omegac, d):
