@@ -37,9 +37,6 @@ class EOS(metaclass=ABCMeta):
 class Polytrope(EOS):
     """ Polytrope equation of state """
 
-    # def __init__(self):
-    #     self.initialized = False
-
     def initialize_eos(self, parameters):
         self.initialized = True
         self.K = parameters['K']
@@ -73,21 +70,18 @@ class Polytrope(EOS):
         if not self.initialized:
             raise Exception("EOS not initialized")
 
-        return - (Phi(self.A) - Phi(self.B)) / (Psi(self.A) - Psi(self.B))
+        return - (Phi[self.A] - Phi[self.B]) / (Psi[self.A] - Psi[self.B])
 
     def C(self, Phi, Psi):
         """ eq 17 """
         if not self.initialized:
             raise Exception("EOS not initialized")
 
-        return Phi(self.A) + self.Omega2(Phi, Psi) * Psi(self.A)
+        return Phi[self.A] + self.Omega2(Phi, Psi) * Psi[self.A]
 
 
 class WD_matter(EOS):
     """ Equation of state for a white dwarf with zero temperature """
-
-    # def __init__(self):
-    #     self.initialized = False
 
     def initialize_eos(self, parameters):
         self.initialized = True
@@ -124,11 +118,11 @@ class WD_matter(EOS):
         if not self.initialized:
             raise Exception("EOS not initialized")
 
-        return - (Phi(self.A) - Phi(self.B)) / (Psi(self.A) - Psi(self.B))
+        return - (Phi[self.A] - Phi[self.B]) / (Psi[self.A] - Psi[self.B])
 
     def C(self, Phi, Psi):
         """ eq 21 """
         if not self.initialized:
             raise Exception("EOS not initialized")
 
-        return 8 * self.a / self.b + Phi(self.A) + self.Omega2(Phi, Psi) * Psi(self.A)
+        return 8 * self.a / self.b + Phi[self.A] + self.Omega2(Phi, Psi) * Psi[self.A]
