@@ -1,0 +1,14 @@
+language: python
+
+python:
+  - "3.6"
+
+before_install:
+  - export PATH=$(echo $PATH | tr ':' "\n" | sed '/\/opt\/python/d' | tr "\n" ":" | sed "s|::|:|g")
+
+install:
+  - pip install -r requirements.txt
+
+script:
+  - flake8 .
+  - pytest -v --cov=. --cov-config .coveragerc test.py
