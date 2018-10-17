@@ -347,7 +347,9 @@ class SCF(Solver):
 
         def Q1(j):
             return np.sum((mu[2::2] - mu[:-2:2]) *
-                          (star.rho[:-2:2, j] + 4 * star.rho[1:-1:2, j] + star.rho[2::2, j]))
+                          (star.rho[:-2:2, j] +
+                           4 * star.rho[1:-1:2, j] +
+                           star.rho[2::2, j]))
 
         mass = 0
 
@@ -368,7 +370,9 @@ class SCF(Solver):
         r = star.r_coords
 
         def S1(j):
-            return np.sum((mu[2::2] - mu[:-2:2]) * (star.rho[:-2:2, j] * star.Phi[:-2:2, j] + 4 * star.rho[1:-1:2, j] * star.Phi[1:-1:2, j] + star.rho[2::2, j] * star.Phi[2::2, j]))
+            return np.sum((mu[2::2] - mu[:-2:2]) * (star.rho[:-2:2, j] * star.Phi[:-2:2, j] +
+                                                    4 * star.rho[1:-1:2, j] * star.Phi[1:-1:2, j] +
+                                                    star.rho[2::2, j] * star.Phi[2::2, j]))
 
         W = 0
 
