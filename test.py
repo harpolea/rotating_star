@@ -4,6 +4,7 @@ import pytest
 
 from star import Star
 import eos
+import solvers
 
 
 class TestStar(object):
@@ -36,3 +37,11 @@ class TestStar(object):
 
     def test_object_initialization(self):
         assert self.star.eos == eos.Polytrope
+        assert self.star.rotation_law == self.star.rigid_rotation
+        assert self.star.solver == solvers.SCF(self.star)
+
+        assert np.shape(self.star.rho) == self.star.mesh_size
+        assert np.shape(self.star.Phi) == self.star.mesh_size
+
+        assert self.star.eos.N == self.parameters['N']
+        assert self.star.eos.K == self.parameters['K']
