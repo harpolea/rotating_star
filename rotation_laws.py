@@ -44,7 +44,6 @@ class VConstantRotation(RotationLaw):
     def Chi(self, omegabar):
         return - 0.5 * np.log(self.d**2 + omegabar**2)
 
-
 class JConstantRotation(RotationLaw):
 
     def initialize_law(self, parameters):

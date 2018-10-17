@@ -1,12 +1,17 @@
 from abc import ABCMeta, abstractmethod
 import numpy as np
 from scipy.special import lpmv, factorial, eval_legendre
+from scipy.optimize import fsolve
 
 
 class Solver(metaclass=ABCMeta):
 
     def __init__(self, star):
         self.star = star
+
+    @abstractmethod
+    def initialize_solver(self, parameters):
+        pass
 
     @abstractmethod
     def solve(self, max_steps=100):
@@ -22,6 +27,9 @@ class Solver(metaclass=ABCMeta):
 
 
 class SCF(Solver):
+
+    def initialize_solver(self, parameters):
+        pass
 
     def step(self):
         """ Implements 2d self-consistent field algorithm """
@@ -183,18 +191,154 @@ class SCF(Solver):
 class Newton(Solver):
     """ Implements the Newton solver of Aksenov and Blinnikov """
 
+    def initialize_solver(self, parameters):
+
+        self.star.H = self.star.eos.h_from_rho(self.star.eos, self.star.rho)
+
     def step(self):
 
         Phi = self.star.Phi
+        Phi0 = Phi[0, 0]
+
         Chi = self.star.rotation_law.Chi(self.star.omegabar)
+        Chi0 = Chi[0, 0]
+        H = self.star.eos.h_from_rho(self.star.eos, self.star.rho)
+        H0 = H[0, 0]
 
         A = self.star.eos.A
         B = self.star.eos.B
 
-        C_Psi = (Phi[B] - Phi[A]) / (Chi[self.A] - Chi[self.B])
+        C_Psi = (Phi[B] - Phi[A]) / (Chi[A] - Chi[B])
+
+        Psi = C_Psi * Chi
+
+        C = 0.5 * (Phi[A] + Phi[B] + Psi[A] + Psi[B])
+
+        _B = C - Phi - Psi
+        B0 = _B[0, 0]
+
+        print(f"B0 = {B0}, Phi0 = {Phi0}, Psi0 = {Psi[0,0]}, C = {C}")
+        # print(f"B = {_B}")
+
+        rho_H_dash = self.star.eos.rho_H_dash(self.star.eos, H)
+
+        rho0 = self.star.rho[0, 0]
+
+        print(f"rho0 = {rho0}")
+
+        gPhi = 4 * np.pi * self.star.G * rho_H_dash * H0 / (rho0 * B0)
+
+        gA = - gPhi * ((Chi[A] - Chi) / (Chi[A] - Chi[B]) -
+                       _B / B0 * (Chi[A] - Chi0) / (Chi[A] - Chi[B]))
+
+        gB = - gPhi * ((Chi - Chi[B]) / (Chi[A] - Chi[B]) -
+                       _B / B0 * (Chi0 - Chi[B]) / (Chi[A] - Chi[B]))
+
+        g0 = - gPhi * _B / B0
+
+        R = (4 * np.pi * self.star.G * self.star.rho - gA * \
+            Phi[A] - gB * Phi[B] - g0 * Phi0 - gPhi * Phi).flatten()
+
+        def laplacian(phi):
+            _laplacian = np.zeros_like(phi)
+
+            dr = self.star.r_coords[1] - self.star.r_coords[0]
+
+            _laplacian[1:-1,1:-1] =  (phi[2:, 1:-1] - 2 * phi[1:-1, 1:-1] + phi[:-2, 1:-1]) / dr**2 + \
+                1 / self.star.r_coords[1:-1] * (phi[2:, 1:-1] - phi[:-2, 1:-1]) / (2 * dr) + \
+                1 / self.star.r_coords[1:-1]**2 * ((phi[1:-1, 2:] - phi[1:-1, 1:-1]) / (self.star.mu_coords[2:] - self.star.mu_coords[1:-1]) +
+                                                   (phi[1:-1, :-2] - phi[1:-1, 1:-1]) / (self.star.mu_coords[1:-1] - self.star.mu_coords[:-2]))
+            return _laplacian
+        # calculate the LHS
+
+        gPhi = gPhi.flatten()
+        gA = gA.flatten()
+        gB = gB.flatten()
+        g0 = g0.flatten()
+
+        def root_solve(new_Phi):
+
+            lhs = gPhi * new_Phi + gA * \
+                new_Phi.reshape(self.star.mesh_size)[A] + gB * new_Phi.reshape(self.star.mesh_size)[B] + g0 * new_Phi[0]
+
+            # calculate the laplacian of new_Phi
+
+            laplacian_newphi = laplacian(new_Phi.reshape(self.star.mesh_size)).flatten()
+
+            lhs += laplacian_newphi
+
+            return lhs - R
+
+        Phi = fsolve(root_solve, self.star.Phi.flatten()).reshape(self.star.mesh_size)
+        self.star.Phi = Phi
+
+        print(f"Phi = {self.star.Phi[0,:]}")
+
+        C_Psi = (Phi[B] - Phi[A]) / (Chi[A] - Chi[B])
+
+        Psi = C_Psi * Chi
+
+        C = 0.5 * (Phi[A] + Phi[B] + Psi[A] + Psi[B])
+
+        H = C - Phi - Psi
+
+        # self.star.rho[1:-1,1:-1] = laplacian(self.star.Phi)[1:-1,1:-1] / (4 * np.pi * self.star.G)
+
+        self.star.rho = self.star.eos.rho_from_h(self.star.eos, H)
+
+        print(f"rho = {self.star.rho[0,:]}")
+
+        # print(f"H = {self.star.H}")
+
+        # calculate the errors
+
+        Omega2 = self.star.eos.Omega2(self.star.eos, Phi, self.star.Psi)
+        C = self.star.eos.C(self.star.eos, Phi, self.star.Psi)
+
+        # H = self.star.eos.h_from_rho(self.star.eos, self.star.rho)
+
+        H_err = np.max(np.abs(H - self.star.H)) / np.max(np.abs(H))
+
+        if np.max(Omega2) == 0:
+            if np.abs(Omega2 - self.star.Omega2) == 0:
+                Omega2_err = 0
+            else:
+                Omega2_err = 1
+        else:
+            Omega2_err = np.abs(Omega2 - self.star.Omega2) / np.abs(Omega2)
+
+        if np.max(self.star.C) == 0:
+            if np.abs(C - self.star.C) == 0:
+                C_err = 0
+            else:
+                C_err = 1
+        else:
+            C_err = np.abs(C - self.star.C) / np.abs(self.star.C)
+
+        # set variables to new values
+
+        self.star.H = H
+        self.star.Omega2 = Omega2
+        self.star.C = C
+        print(
+            f"Errors: H_err = {H_err}, Omega2_err = {Omega2_err}, C_err = {C_err}")
+
+        return H_err, Omega2_err, C_err
 
     def solve(self, max_steps=100):
-        pass
+        delta = 1e-4
+
+        H_err = 1
+        Omega2_err = 1
+        C_err = 1
+
+        for i in range(max_steps):
+            print(f"Step {i}")
+            H_err, Omega2_err, C_err = self.step()
+
+            if H_err < delta and Omega2_err < delta and C_err < delta:
+                print("Solution found!")
+                break
 
     def calc_mass(self):
         pass
@@ -204,6 +348,9 @@ class Newton(Solver):
 
 
 class SCF3(Solver):
+
+    def initialize_solver(self, parameters):
+        pass
 
     def step(self):
         """ Implements 3d self-consistent field algorithm. This does not currently work. """

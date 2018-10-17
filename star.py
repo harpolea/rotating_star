@@ -56,8 +56,12 @@ class Star(object):
             self.mu_coords = np.array(
                 range(self.mesh_size[0])) / (self.mesh_size[0] - 1)
 
-            self.r_coords = np.array(
-                range(1, self.mesh_size[1] + 1)) / (self.mesh_size[1] - 1)
+            if solver == "Newton":
+                self.r_coords = np.array(
+                    range(self.mesh_size[1])) / (self.mesh_size[1] - 2)
+            else:
+                self.r_coords = np.array(
+                    range(1, self.mesh_size[1] + 1)) / (self.mesh_size[1] - 1)
 
         self.rmax = self.r_coords[-1]
 
@@ -80,17 +84,29 @@ class Star(object):
     def initialize_star(self, parameters):
         self.eos.initialize_eos(self.eos, parameters)
         self.rotation_law.initialize_law(parameters)
+        self.solver.initialize_solver(parameters)
 
-        # make a guess for rho
+        # make a guess for rho and Phi
         if self.dim == 3:
             self.rho[:, :, :] = 1 - self.r_coords[np.newaxis, np.newaxis, :]
             print(f"rho = {self.rho[0,0,:]}")
         else:
             self.rho[:, :] = 1 - self.r_coords[np.newaxis, :]
             print(f"rho = {self.rho[0,:]}")
+
+            r2d = np.zeros(self.mesh_size)
+            r2d[:,:] = self.r_coords[np.newaxis,:]
+
+            self.Phi[r2d < 1] = -1.5
+            self.Phi[r2d == 1] = -1
+            self.Phi[r2d > 1] = -0.5
+
         self.rho[self.rho < 0] = 0
 
         self.rho /= np.max(self.rho)
+
+        self.H = self.eos.h_from_rho(self.eos, self.rho)
+
 
     def solve_star(self, max_steps=100):
 

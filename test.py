@@ -25,7 +25,7 @@ class TestStar(object):
         self.solver = "SCF"
 
         self.mesh_size = (3, 3, 3)
-        self.parameters = {'K': 1, 'N': 0, 'A': (2, 0, 0), 'B': (1, 0, 0)}
+        self.parameters = {'K': 1, 'N': 0, 'A': (2, 0, 0), 'B': (1, 0, 0), 'Omega0':1}
 
         self.star = Star(self.rotation_law, self.eos,
                          self.solver, self.mesh_size)

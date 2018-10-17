@@ -33,6 +33,10 @@ class EOS(metaclass=ABCMeta):
     def C(self, Phi, Psi):
         pass
 
+    @abstractmethod
+    def rho_H_dash(self, h):
+        pass
+
 
 class Polytrope(EOS):
     """ Polytrope equation of state """
@@ -73,7 +77,9 @@ class Polytrope(EOS):
         if not self.initialized:
             raise Exception("EOS not initialized")
 
-        return (1 + self.N) * self.p_from_rho(rho) / rho
+        h = (1 + self.N) * self.p_from_rho(self,rho) / rho
+        h[rho <= 0] = 0
+        return h
 
     def Omega2(self, Phi, Psi):
         """ eq 16 """
@@ -91,6 +97,21 @@ class Polytrope(EOS):
             raise Exception("EOS not initialized")
 
         return Phi[self.A] + self.Omega2(self, Phi, Psi) * Psi[self.A]
+
+    def rho_H_dash(self, h):
+        if not self.initialized:
+            raise Exception("EOS not initialized")
+
+        return self.N * h**(self.N-1) / (self.K * (1 + self.N))**self.N
+
+        rho = np.zeros_like(h)
+        rho[h < 0] = 0
+
+        rho[h >= 0] = self.N * h[h >= 0]**(self.N-1) / (self.K * (1 + self.N))**self.N
+
+        return rho
+
+
 
 
 class WD_matter(EOS):
@@ -140,3 +161,6 @@ class WD_matter(EOS):
 
         return 8 * self.a / self.b + Phi[self.A] + \
             self.Omega2(Phi, Psi) * Psi[self.A]
+
+    def rho_H_dash(self, h):
+        raise NotImplementedError("This has not been implemented")
