@@ -1,7 +1,6 @@
 from abc import ABCMeta, abstractmethod
 import numpy as np
 from scipy.special import lpmv, factorial
-from scipy.integrate import quad
 
 
 class Solver(metaclass=ABCMeta):
@@ -122,7 +121,6 @@ class SCF(Solver):
         star.H = H
         star.Omega2 = Omega2
         star.C = C
-
         print(
             f"Errors: H_err = {H_err}, Omega2_err = {Omega2_err}, C_err = {C_err}")
 
@@ -161,8 +159,9 @@ class SCF(Solver):
 
             for i in range(0, M - 2, 2):
                 sum += (1 / 6) * (ph[i + 2] - ph[i]) * (star.rho[i, j, k] +
-                                                        4 * star.rho[i + 1, j, k] +
-                                                        star.rho[i + 2, j, k])
+                                                        4 *
+                                                        star.rho[i + 1, j, k]
+                                                        + star.rho[i + 2, j, k])
 
             return 2 * sum
 

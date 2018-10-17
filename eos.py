@@ -104,8 +104,8 @@ class WD_matter(EOS):
         if not self.initialized:
             raise Exception("EOS not initialized")
 
-        return self.a * (self.x * (2 * self.x**2 - 3) * np.sqrt(self.x**2 + 1) +
-                         3 * np.arcsinh(self.x))
+        return self.a * (self.x * (2 * self.x**2 - 3) * np.sqrt(self.x**2 + 1)
+                         + 3 * np.arcsinh(self.x))
 
     def rho_from_h(self, h):
         """ eq 11 """
@@ -133,4 +133,5 @@ class WD_matter(EOS):
         if not self.initialized:
             raise Exception("EOS not initialized")
 
-        return 8 * self.a / self.b + Phi[self.A] + self.Omega2(Phi, Psi) * Psi[self.A]
+        return 8 * self.a / self.b + Phi[self.A] + \
+            self.Omega2(Phi, Psi) * Psi[self.A]

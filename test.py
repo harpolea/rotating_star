@@ -23,10 +23,11 @@ class TestStar(object):
         self.eos = "polytrope"
         self.solver = "SCF"
 
-        self.mesh_size = (3,3,3)
-        self.parameters = {'K': 1, 'N':0, 'A': (2,0,0), 'B':(1,0,0)}
+        self.mesh_size = (3, 3, 3)
+        self.parameters = {'K': 1, 'N': 0, 'A': (2, 0, 0), 'B': (1, 0, 0)}
 
-        self.star = Star(self.rotation_law, self.eos, self.solver, self.mesh_size)
+        self.star = Star(self.rotation_law, self.eos,
+                         self.solver, self.mesh_size)
         self.star.initialize_star(self.parameters)
 
     def teardown_method(self):
