@@ -66,7 +66,6 @@ class Polytrope(EOS):
         return (h / (self.K * (1 + self.N)))**self.N
 
         rho = np.zeros_like(h)
-        rho[h < 0] = 0
 
         rho[h >= 0] = (h[h >= 0] / (self.K * (1 + self.N)))**self.N
 
@@ -77,8 +76,10 @@ class Polytrope(EOS):
         if not self.initialized:
             raise Exception("EOS not initialized")
 
-        h = (1 + self.N) * self.p_from_rho(self,rho) / rho
-        h[rho <= 0] = 0
+        h = np.zeros_like(rho)
+
+        h[rho > 0] = (1 + self.N) * self.p_from_rho(rho[rho > 0]) / rho[rho > 0]
+
         return h
 
     def Omega2(self, Phi, Psi):

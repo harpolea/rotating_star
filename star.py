@@ -21,7 +21,7 @@ class Star(object):
 
         eoses = {"polytrope": eos.Polytrope, "wd": eos.WD_matter}
         try:
-            self.eos = eoses[_eos]
+            self.eos = eoses[_eos]()
         except KeyError:
             raise KeyError(f"EoS must be one of: {eoses.keys()}")
 
@@ -82,7 +82,7 @@ class Star(object):
         self.W = 0
 
     def initialize_star(self, parameters):
-        self.eos.initialize_eos(self.eos, parameters)
+        self.eos.initialize_eos(parameters)
         self.rotation_law.initialize_law(parameters)
         self.solver.initialize_solver(parameters)
 
@@ -105,7 +105,7 @@ class Star(object):
 
         self.rho /= np.max(self.rho)
 
-        self.H = self.eos.h_from_rho(self.eos, self.rho)
+        self.H = self.eos.h_from_rho(self.rho)
 
 
     def solve_star(self, max_steps=100):

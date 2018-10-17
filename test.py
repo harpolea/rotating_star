@@ -5,6 +5,7 @@ import pytest
 from star import Star
 import eos
 import solvers
+import rotation_laws
 
 
 class TestStar(object):
@@ -36,8 +37,8 @@ class TestStar(object):
         pass
 
     def test_object_initialization(self):
-        assert self.star.eos == eos.Polytrope
-        assert self.star.rotation_law == self.star.rigid_rotation
+        assert type(self.star.eos) == type(eos.Polytrope())
+        assert type(self.star.rotation_law) == type(rotation_laws.RigidRotation())
         assert type(self.star.solver) == type(solvers.SCF(self.star))
 
         assert np.shape(self.star.rho) == self.star.mesh_size

@@ -80,14 +80,14 @@ class SCF(Solver):
 
         # update the enthalpy
 
-        Omega2 = star.eos.Omega2(star.eos, star.Phi, star.Psi)
-        C = star.eos.C(star.eos, star.Phi, star.Psi)
+        Omega2 = star.eos.Omega2(star.Phi, star.Psi)
+        C = star.eos.C(star.Phi, star.Psi)
 
         H = C - star.Phi - Omega2 * star.Psi
 
         # use new enthalpy and Phi to calculate the density
 
-        star.rho = star.eos.rho_from_h(star.eos, H)
+        star.rho = star.eos.rho_from_h(H)
         star.rho /= np.max(star.rho)
 
         # print(f"rho = {np.average(star.rho, axis=0)}")
@@ -193,7 +193,7 @@ class Newton(Solver):
 
     def initialize_solver(self, parameters):
 
-        self.star.H = self.star.eos.h_from_rho(self.star.eos, self.star.rho)
+        self.star.H = self.star.eos.h_from_rho(self.star.rho)
 
     def step(self):
 
@@ -202,7 +202,7 @@ class Newton(Solver):
 
         Chi = self.star.rotation_law.Chi(self.star.omegabar)
         Chi0 = Chi[0, 0]
-        H = self.star.eos.h_from_rho(self.star.eos, self.star.rho)
+        H = self.star.eos.h_from_rho(self.star.rho)
         H0 = H[0, 0]
 
         A = self.star.eos.A
@@ -220,7 +220,7 @@ class Newton(Solver):
         print(f"B0 = {B0}, Phi0 = {Phi0}, Psi0 = {Psi[0,0]}, C = {C}")
         # print(f"B = {_B}")
 
-        rho_H_dash = self.star.eos.rho_H_dash(self.star.eos, H)
+        rho_H_dash = self.star.eos.rho_H_dash(H)
 
         rho0 = self.star.rho[0, 0]
 
@@ -284,7 +284,7 @@ class Newton(Solver):
 
         # self.star.rho[1:-1,1:-1] = laplacian(self.star.Phi)[1:-1,1:-1] / (4 * np.pi * self.star.G)
 
-        self.star.rho = self.star.eos.rho_from_h(self.star.eos, H)
+        self.star.rho = self.star.eos.rho_from_h(H)
 
         print(f"rho = {self.star.rho[0,:]}")
 
@@ -292,8 +292,8 @@ class Newton(Solver):
 
         # calculate the errors
 
-        Omega2 = self.star.eos.Omega2(self.star.eos, Phi, self.star.Psi)
-        C = self.star.eos.C(self.star.eos, Phi, self.star.Psi)
+        Omega2 = self.star.eos.Omega2(Phi, self.star.Psi)
+        # C = self.star.eos.C(self.star.eos, Phi, self.star.Psi)
 
         # H = self.star.eos.h_from_rho(self.star.eos, self.star.rho)
 
@@ -420,14 +420,14 @@ class SCF3(Solver):
 
         # update the enthalpy
 
-        Omega2 = star.eos.Omega2(star.eos, star.Phi, star.Psi)
-        C = star.eos.C(star.eos, star.Phi, star.Psi)
+        Omega2 = star.eos.Omega2(star.Phi, star.Psi)
+        C = star.eos.C(star.Phi, star.Psi)
 
         H = C - star.Phi - Omega2 * star.Psi
 
         # use new enthalpy and Phi to calculate the density
 
-        star.rho = star.eos.rho_from_h(star.eos, H)
+        star.rho = star.eos.rho_from_h(H)
         star.rho /= np.max(star.rho)
 
         print(f"rho = {np.average(star.rho[:,0,:], axis=0)}")
