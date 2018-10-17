@@ -49,12 +49,17 @@ class Polytrope(EOS):
         if not self.initialized:
             raise Exception("EOS not initialized")
 
-        return self.K * rho ** (1 + 1 / self.N)
+        if self.N == 0:
+            return rho
+        else:
+            return self.K * rho ** (1 + 1 / self.N)
 
     def rho_from_h(self, h):
         """ eq 10 """
         if not self.initialized:
             raise Exception("EOS not initialized")
+
+        return (h / (self.K * (1 + self.N)))**self.N
 
         rho = np.zeros_like(h)
         rho[h < 0] = 0

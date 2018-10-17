@@ -33,7 +33,8 @@ class Star(object):
         self.G = G
 
         self.mesh_size = mesh_size
-        self.rmax = rmax
+
+        self.dim = len(mesh_size)
 
         # initialize mesh
         self.rho = np.zeros(self.mesh_size)
@@ -41,18 +42,32 @@ class Star(object):
 
         # initialize coords
 
-        self.phi_coords = np.pi * \
-            np.array(range(self.mesh_size[0])) / (self.mesh_size[0] - 1)
+        if self.dim == 3:
+            self.phi_coords = np.pi * \
+                np.array(range(self.mesh_size[0])) / (self.mesh_size[0] - 1)
 
-        self.mu_coords = np.array(
-            range(self.mesh_size[1])) / (self.mesh_size[1] - 1)
+            self.mu_coords = np.array(
+                range(self.mesh_size[1])) / (self.mesh_size[1] - 1)
 
-        self.r_coords = rmax * \
-            np.array(range(1, self.mesh_size[2] + 1)) / (self.mesh_size[2] - 1)
+            self.r_coords = np.array(
+                range(1, self.mesh_size[2] + 1)) / (self.mesh_size[2] - 1)
+        else:
+            self.mu_coords = np.array(
+                range(self.mesh_size[0])) / (self.mesh_size[0] - 1)
+
+            self.r_coords = np.array(
+                range(1, self.mesh_size[1] + 1)) / (self.mesh_size[1] - 1)
+
+
+        self.rmax = self.r_coords[-1]
 
         self.Psi = np.zeros(self.mesh_size)
-        self.Psi[:, :, :] = -0.5 * self.r_coords[np.newaxis, np.newaxis,
-                                                 :]**2 * (1 - self.mu_coords[np.newaxis, :, np.newaxis]**2)
+        if self.dim == 3:
+            self.Psi[:, :, :] = -0.5 * self.r_coords[np.newaxis, np.newaxis,
+                                                     :]**2 * (1 - self.mu_coords[np.newaxis, :, np.newaxis]**2)
+        else:
+            self.Psi[:, :] = -0.5 * self.r_coords[np.newaxis,
+                                                  :]**2 * (1 - self.mu_coords[:, np.newaxis]**2)
 
         self.H = np.zeros(self.mesh_size)
         self.Omega2 = 0
@@ -62,10 +77,15 @@ class Star(object):
         self.eos.initialize_eos(self.eos, parameters)
 
         # make a guess for rho
-        self.rho[:, :, :] = self.rmax - \
-            self.r_coords[np.newaxis, np.newaxis, :]
+        if self.dim == 3:
+            self.rho[:, :, :] = 1 - self.r_coords[np.newaxis, np.newaxis, :]
+            print(f"rho = {self.rho[0,0,:]}")
+        else:
+            self.rho[:, :] = 1 - self.r_coords[np.newaxis, :]
+            print(f"rho = {self.rho[0,:]}")
+        self.rho[self.rho < 0] = 0
 
-        print(f"rho = {self.rho[0,0,:]}")
+        self.rho /= np.max(self.rho)
 
     def solve_star(self, max_steps=100):
 
@@ -78,20 +98,26 @@ class Star(object):
         return M, W
 
     def plot_star(self):
-        fig, axes = plt.subplots(nrows=3, sharex=True)
+        fig, axes = plt.subplots(nrows=3, sharex=True, figsize=(8,10))
 
-        axes[0].plot(self.r_coords, self.rho[0, 0, :])
+        if self.dim == 3:
+            axes[0].plot(self.r_coords, self.rho[0, 0, :])
+            axes[1].plot(self.r_coords, self.Phi[0, 0, :])
+            axes[2].plot(self.r_coords, self.H[0, 0, :])
+
+        else:
+            axes[0].plot(self.r_coords, self.rho[0, :], marker='x')
+            axes[1].plot(self.r_coords, self.Phi[0, :], marker='x')
+            axes[2].plot(self.r_coords, self.H[0, :], marker='x')
+
         axes[0].set_ylabel(r'$\rho$')
-
-        axes[1].plot(self.r_coords, self.Phi[0, 0, :])
         axes[1].set_ylabel(r'$\Phi$')
-
-        axes[2].plot(self.r_coords, self.H[0, 0, :])
         axes[2].set_ylabel(r'$H$')
 
         axes[2].set_xlabel(r'$r$')
 
         fig.subplots_adjust(hspace=0)
+        axes[2].set_xlim([0, 1])
 
         plt.show()
 
