@@ -2,7 +2,8 @@ import numpy as np
 from matplotlib import pyplot as plt
 
 import eos
-from solvers import SCF
+from solvers import SCF, Newton
+from rotation_laws import RigidRotation, VConstantRotation, JConstantRotation
 
 
 class Star(object):
@@ -11,10 +12,10 @@ class Star(object):
         """
         Constructor
         """
-        laws = {"rigid": self.rigid_rotation, "v-constant": self.v_constant_rotation,
-                "j-constant": self.j_constant_rotation}
+        laws = {"rigid": RigidRotation, "v-constant": VConstantRotation,
+                "j-constant": JConstantRotation}
         try:
-            self.rotation_law = laws[rotation_law]
+            self.rotation_law = laws[rotation_law]()
         except KeyError:
             raise KeyError(f"Rotation law must be one of: {laws.keys()}")
 
@@ -24,7 +25,7 @@ class Star(object):
         except KeyError:
             raise KeyError(f"EoS must be one of: {eoses.keys()}")
 
-        solvers = {"SCF": SCF}
+        solvers = {"SCF": SCF, "Newton": Newton}
         try:
             self.solver = solvers[solver](self)
         except KeyError:
@@ -68,6 +69,8 @@ class Star(object):
             self.Psi[:, :] = -0.5 * self.r_coords[np.newaxis, :]**2 * \
                 (1 - self.mu_coords[:, np.newaxis]**2)
 
+        self.omegabar = np.sqrt(-2*self.Psi)
+
         self.H = np.zeros(self.mesh_size)
         self.Omega2 = 0
         self.C = 0
@@ -76,6 +79,7 @@ class Star(object):
 
     def initialize_star(self, parameters):
         self.eos.initialize_eos(self.eos, parameters)
+        self.rotation_law.initialize_law(parameters)
 
         # make a guess for rho
         if self.dim == 3:
@@ -147,27 +151,3 @@ class Star(object):
         axes[2].legend()
 
         plt.show()
-
-    @staticmethod
-    def rigid_rotation(r, omegac, d):
-        omega = omegac
-        Cv = omegac**2
-        chi = -0.5 * r**2
-
-        return omega, Cv, chi
-
-    @staticmethod
-    def v_constant_rotation(r, omegac, d):
-        omega = omegac / (1 + r / d)
-        Cv = omegac**2
-        chi = -d**2 * (d / (d + r) + np.log(d + r))
-
-        return omega, Cv, chi
-
-    @staticmethod
-    def j_constant_rotation(r, omegac, d):
-        omega = omegac / (1 + r**2 / d**2)
-        Cv = omegac**2
-        chi = 0.5 * d**4 / (d**2 + r**2)
-
-        return omega, Cv, chi
