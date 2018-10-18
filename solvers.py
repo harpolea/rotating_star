@@ -193,17 +193,48 @@ class Newton(Solver):
 
     def initialize_solver(self, parameters):
 
-        self.star.H = self.star.eos.h_from_rho(self.star.rho)
+        self.Chi = self.star.rotation_law.Chi(self.star.omegabar)
+        Phi = self.star.Phi
+        r2d = np.zeros(self.star.mesh_size)
+        r2d[:, :] = self.star.r_coords[np.newaxis, :]
+
+        Phi[r2d < 1] = -1.5
+        Phi[r2d == 1] = -1
+        Phi[r2d > 1] = -0.5
+
+        H = self.H_from_Phi(Phi)
+
+        self.star.H = H  # self.star.eos.h_from_rho(self.star.rho)
+
+        self.star.rho = self.star.eos.rho_from_h(H)
+
+        print(f"rho = {self.star.rho[0,:]}")
+        print(f"H = {H[0,:]}")
+
+    def H_from_Phi(self, Phi):
+        A = self.star.eos.A
+        B = self.star.eos.B
+        Chi = self.Chi
+
+        C_Psi = (Phi[B] - Phi[A]) / (Chi[A] - Chi[B])
+
+        Psi = C_Psi * Chi
+
+        C = 0.5 * (Phi[A] + Phi[B] + Psi[A] + Psi[B])
+
+        return C - Phi - Psi
 
     def step(self):
 
         Phi = self.star.Phi
         Phi0 = Phi[0, 0]
 
-        Chi = self.star.rotation_law.Chi(self.star.omegabar)
+        Chi = self.Chi
         Chi0 = Chi[0, 0]
-        H = self.star.eos.h_from_rho(self.star.rho)
+        H = self.H_from_Phi(Phi)
         H0 = H[0, 0]
+
+        rho = self.star.eos.rho_from_h(H)
 
         A = self.star.eos.A
         B = self.star.eos.B
@@ -222,7 +253,7 @@ class Newton(Solver):
 
         rho_H_dash = self.star.eos.rho_H_dash(H)
 
-        rho0 = self.star.rho[0, 0]
+        rho0 = rho[0, 0]
 
         print(f"rho0 = {rho0}")
 
@@ -236,51 +267,119 @@ class Newton(Solver):
 
         g0 = - gPhi * _B / B0
 
-        R = (4 * np.pi * self.star.G * self.star.rho - gA * \
-            Phi[A] - gB * Phi[B] - g0 * Phi0 - gPhi * Phi).flatten()
+        R = (4 * np.pi * self.star.G * rho - gA *
+             Phi[A] - gB * Phi[B] - g0 * Phi0 - gPhi * Phi).flatten()
 
-        def laplacian(phi):
-            _laplacian = np.zeros_like(phi)
+        r = self.star.r_coords
+        th = self.star.theta_coords
 
-            dr = self.star.r_coords[1] - self.star.r_coords[0]
+        r2d = np.zeros(self.star.mesh_size)
+        r2d[:, :] = r[np.newaxis, :]
 
-            _laplacian[1:-1,1:-1] =  (phi[2:, 1:-1] - 2 * phi[1:-1, 1:-1] + phi[:-2, 1:-1]) / dr**2 + \
-                1 / self.star.r_coords[1:-1] * (phi[2:, 1:-1] - phi[:-2, 1:-1]) / (2 * dr) + \
-                1 / self.star.r_coords[1:-1]**2 * ((phi[1:-1, 2:] - phi[1:-1, 1:-1]) / (self.star.mu_coords[2:] - self.star.mu_coords[1:-1]) +
-                                                   (phi[1:-1, :-2] - phi[1:-1, 1:-1]) / (self.star.mu_coords[1:-1] - self.star.mu_coords[:-2]))
-            return _laplacian
-        # calculate the LHS
+        th2d = np.zeros(self.star.mesh_size)
+        th2d[:, :] = th[:, np.newaxis]
 
-        gPhi = gPhi.flatten()
-        gA = gA.flatten()
-        gB = gB.flatten()
-        g0 = g0.flatten()
+        dr = r[1] - r[0]
+        h = 1 / (self.star.mesh_size[1] - A[1])
+        dth = th[1] - th[0]
 
-        def root_solve(new_Phi):
+        # find where r >=1
+        indx = 0
+        for i, rr in enumerate(r):
+            if rr >= 1:
+                indx = i
+                break
 
-            lhs = gPhi * new_Phi + gA * \
-                new_Phi.reshape(self.star.mesh_size)[A] + gB * new_Phi.reshape(self.star.mesh_size)[B] + g0 * new_Phi[0]
+        # def laplacian(phi):
+        #     _laplacian = np.zeros_like(phi[:, 1:-1])
+        #
+        #     # r part
+        #     _laplacian[:, :] = 1 / (dr**2 * r2d[:, 1:-1]) * 0.5 * \
+        #         ((r2d[:, 2:]**2 + r2d[:, 1:-1]**2) * (Phi[:, 2:] - Phi[:, 1:-1]) -
+        #          (r2d[:, 1:-1]**2 + r2d[:, :-2]**2) * (Phi[:, 1:-1] - Phi[:, :-2]))
+        #
+        #     _laplacian[:, indx:] = 1 / (r2d[:, indx:-1]**4 * h**2) * (
+        #         Phi[:, indx - 1:-2] - 2 * Phi[:, indx:-1] + Phi[:, indx + 1:])
+        #
+        #     # theta part
+        #     _laplacian[1:-1, :] += 1 / (r2d[1:-1, 1:-1]**2 * np.sin(th2d[1:-1, 1:-1]) * dth**2) * 0.5 * \
+        #         ((np.sin(th2d[2:, 1:-1]) + np.sin(th2d[1:-1, 1:-1]) * (Phi[2:, 1:-1] - Phi[1:-1, 1:-1]) -
+        #           (np.sin(th2d[1:-1, 1:-1]) + np.sin(th2d[:-2, 1:-1])) * (Phi[1:-1, 1:-1] - Phi[:-2, 1:-1])))
+        #
+        #     # boundaries
+        #     _laplacian[0, :] += 4 / r2d[0, 1:-1]**2 * \
+        #         (Phi[1, 1:-1] - Phi[0, 1:-1]) / dth**2
+        #
+        #     _laplacian[-1, :] += 2 / r2d[-1, 1:-1]**2 * \
+        #         (Phi[-2, 1:-1] - Phi[-1, 1:-1]) / dth**2
+        #
+        #     # _laplacian[1:-1,1:-1] =  (phi[1:-1, 2:] - 2 * phi[1:-1, 1:-1] + phi[1:-1, :-2]) / dr**2 + \
+        #     #     1 / self.star.r_coords[1:-1] * (phi[1:-1, 2:] - phi[1:-1, :-2]) / (2 * dr) + \
+        #     #     1 / self.star.r_coords[1:-1]**2 * ((phi[2:, 1:-1] - phi[1:-1, 1:-1]) / (self.star.theta_coords[2:] - self.star.theta_coords[1:-1]) +
+        #     #                                        (phi[:-2, 1:-1] - phi[1:-1, 1:-1]) / (self.star.theta_coords[1:-1] - self.star.theta_coords[:-2]))
+        #     return _laplacian
 
-            # calculate the laplacian of new_Phi
+        # calculate LHS matrix operator
 
-            laplacian_newphi = laplacian(new_Phi.reshape(self.star.mesh_size)).flatten()
+        nx = self.star.mesh_size[0] * self.star.mesh_size[1]
 
-            lhs += laplacian_newphi
+        M = np.zeros((nx, nx))
 
-            return lhs - R
+        # M[:, :-2] += 1/(dr**2 * r[1:-1]**2) * 0.5 * (r[1:-1]**2 + r[:-2]**2)
 
-        Phi = fsolve(root_solve, self.star.Phi.flatten()).reshape(self.star.mesh_size)
-        self.star.Phi = Phi
+        for j in range(self.star.mesh_size[0]):
+            for i in range(1, self.star.mesh_size[1]-1):
+                ix = j * self.star.mesh_size[1] + i
+                M[ix, ix-1] += 1/(dr**2 * r[i]**2) * 0.5 * (r[i]**2 + r[i-1]**2)
+                M[ix, ix] -= 1/(dr**2 * r[i]**2) * 0.5 * (2*r[i]**2 + r[i-1]**2 + r[i+1]**2)
+                M[ix, ix+1] += 1/(dr**2 * r[i]**2) * 0.5 * (r[i]**2 + r[i+1]**2)
 
-        print(f"Phi = {self.star.Phi[0,:]}")
+        for j in range(1, self.star.mesh_size[0]-1):
+            for i in range(1,self.star.mesh_size[1]):
 
-        C_Psi = (Phi[B] - Phi[A]) / (Chi[A] - Chi[B])
+                jm = (j-1) * self.star.mesh_size[1] + i
+                jp = (j+1) * self.star.mesh_size[1] + i
+                M[ix, jm] += 1/(r[i]**2 * np.sin(th[j]) * dth**2) * 0.5 * (np.sin(th[j]) + np.sin(th[j-1]))
+                M[ix, ix] -= 1/(r[i]**2 * np.sin(th[j]) * dth**2) * 0.5 * (2 * np.sin(th[j]) + np.sin(th[j-1]) + np.sin(th[j+1]))
+                M[ix, jp] +=  1/(r[i]**2 * np.sin(th[j]) * dth**2) * 0.5 * (np.sin(th[j]) + np.sin(th[j+1]))
 
-        Psi = C_Psi * Chi
+        # do boundaries
+        for i in range(1,self.star.mesh_size[1]):
+            ix = i
+            jp = self.star.mesh_size[1] + i
+            M[ix, ix] -= 4/(r[i]**2 * dth**2)
+            M[ix, jp] += 4/(r[i]**2 * dth**2)
 
-        C = 0.5 * (Phi[A] + Phi[B] + Psi[A] + Psi[B])
+            ix = (self.star.mesh_size[0]-1)*self.star.mesh_size[1] + i
+            jm = (self.star.mesh_size[0]-2)*self.star.mesh_size[1] + i
+            M[ix,jm] += 2/(r[i]**2 * dth**2)
+            M[ix,ix] -= 2/(r[i]**2 * dth**2)
 
-        H = C - Phi - Psi
+        # print(M)
+
+        # Phi = fsolve(root_solve, self.star.Phi.flatten()
+        #              ).reshape(self.star.mesh_size)
+
+        # add on g's
+        M[:,:] += np.diag(gPhi.flatten())
+
+        A_idx = A[0] * self.star.mesh_size[1] + A[1]
+        B_idx = B[0] * self.star.mesh_size[1] + B[1]
+
+        M[:,A_idx] += gA.flatten()
+        M[:, B_idx] += gB.flatten()
+
+        for j in range(self.star.mesh_size[0]):
+            ix = j * self.star.mesh_size[1]
+
+            M[:,ix] += g0.flatten()
+
+        Phi = np.linalg.solve(M, R).reshape(self.star.mesh_size)
+
+
+        print(f"Phi = {Phi[0,:]}")
+
+        H = self.H_from_Phi(Phi)
 
         # self.star.rho[1:-1,1:-1] = laplacian(self.star.Phi)[1:-1,1:-1] / (4 * np.pi * self.star.G)
 
@@ -292,38 +391,24 @@ class Newton(Solver):
 
         # calculate the errors
 
-        Omega2 = self.star.eos.Omega2(Phi, self.star.Psi)
+        # Omega2 = self.star.eos.Omega2(Phi, self.star.Psi)
         # C = self.star.eos.C(self.star.eos, Phi, self.star.Psi)
 
         # H = self.star.eos.h_from_rho(self.star.eos, self.star.rho)
 
         H_err = np.max(np.abs(H - self.star.H)) / np.max(np.abs(H))
 
-        if np.max(Omega2) == 0:
-            if np.abs(Omega2 - self.star.Omega2) == 0:
-                Omega2_err = 0
-            else:
-                Omega2_err = 1
-        else:
-            Omega2_err = np.abs(Omega2 - self.star.Omega2) / np.abs(Omega2)
-
-        if np.max(self.star.C) == 0:
-            if np.abs(C - self.star.C) == 0:
-                C_err = 0
-            else:
-                C_err = 1
-        else:
-            C_err = np.abs(C - self.star.C) / np.abs(self.star.C)
+        Phi_err = np.max(np.abs(Phi - self.star.Phi)) / np.max(np.abs(Phi))
 
         # set variables to new values
 
         self.star.H = H
-        self.star.Omega2 = Omega2
-        self.star.C = C
-        print(
-            f"Errors: H_err = {H_err}, Omega2_err = {Omega2_err}, C_err = {C_err}")
+        self.star.Phi = Phi
 
-        return H_err, Omega2_err, C_err
+        print(
+            f"Errors: H_err = {H_err}, Phi_err = {Phi_err}")
+
+        return H_err, Phi_err, 0
 
     def solve(self, max_steps=100):
         delta = 1e-4
