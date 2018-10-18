@@ -97,7 +97,7 @@ class Polytrope(EOS):
         if not self.initialized:
             raise Exception("EOS not initialized")
 
-        return Phi[self.A] + self.Omega2(self, Phi, Psi) * Psi[self.A]
+        return Phi[self.A] + self.Omega2(Phi, Psi) * Psi[self.A]
 
     def rho_H_dash(self, h):
         if not self.initialized:

@@ -283,99 +283,59 @@ class Newton(Solver):
         h = 1 / (self.star.mesh_size[1] - A[1])
         dth = th[1] - th[0]
 
-        # find where r >=1
-        indx = 0
-        for i, rr in enumerate(r):
-            if rr >= 1:
-                indx = i
-                break
-
-        # def laplacian(phi):
-        #     _laplacian = np.zeros_like(phi[:, 1:-1])
-        #
-        #     # r part
-        #     _laplacian[:, :] = 1 / (dr**2 * r2d[:, 1:-1]) * 0.5 * \
-        #         ((r2d[:, 2:]**2 + r2d[:, 1:-1]**2) * (Phi[:, 2:] - Phi[:, 1:-1]) -
-        #          (r2d[:, 1:-1]**2 + r2d[:, :-2]**2) * (Phi[:, 1:-1] - Phi[:, :-2]))
-        #
-        #     _laplacian[:, indx:] = 1 / (r2d[:, indx:-1]**4 * h**2) * (
-        #         Phi[:, indx - 1:-2] - 2 * Phi[:, indx:-1] + Phi[:, indx + 1:])
-        #
-        #     # theta part
-        #     _laplacian[1:-1, :] += 1 / (r2d[1:-1, 1:-1]**2 * np.sin(th2d[1:-1, 1:-1]) * dth**2) * 0.5 * \
-        #         ((np.sin(th2d[2:, 1:-1]) + np.sin(th2d[1:-1, 1:-1]) * (Phi[2:, 1:-1] - Phi[1:-1, 1:-1]) -
-        #           (np.sin(th2d[1:-1, 1:-1]) + np.sin(th2d[:-2, 1:-1])) * (Phi[1:-1, 1:-1] - Phi[:-2, 1:-1])))
-        #
-        #     # boundaries
-        #     _laplacian[0, :] += 4 / r2d[0, 1:-1]**2 * \
-        #         (Phi[1, 1:-1] - Phi[0, 1:-1]) / dth**2
-        #
-        #     _laplacian[-1, :] += 2 / r2d[-1, 1:-1]**2 * \
-        #         (Phi[-2, 1:-1] - Phi[-1, 1:-1]) / dth**2
-        #
-        #     # _laplacian[1:-1,1:-1] =  (phi[1:-1, 2:] - 2 * phi[1:-1, 1:-1] + phi[1:-1, :-2]) / dr**2 + \
-        #     #     1 / self.star.r_coords[1:-1] * (phi[1:-1, 2:] - phi[1:-1, :-2]) / (2 * dr) + \
-        #     #     1 / self.star.r_coords[1:-1]**2 * ((phi[2:, 1:-1] - phi[1:-1, 1:-1]) / (self.star.theta_coords[2:] - self.star.theta_coords[1:-1]) +
-        #     #                                        (phi[:-2, 1:-1] - phi[1:-1, 1:-1]) / (self.star.theta_coords[1:-1] - self.star.theta_coords[:-2]))
-        #     return _laplacian
-
         # calculate LHS matrix operator
-
         nx = self.star.mesh_size[0] * self.star.mesh_size[1]
-
         M = np.zeros((nx, nx))
 
-        # M[:, :-2] += 1/(dr**2 * r[1:-1]**2) * 0.5 * (r[1:-1]**2 + r[:-2]**2)
-
         for j in range(self.star.mesh_size[0]):
-            for i in range(1, self.star.mesh_size[1]-1):
+            for i in range(1, self.star.mesh_size[1] - 1):
                 ix = j * self.star.mesh_size[1] + i
-                M[ix, ix-1] += 1/(dr**2 * r[i]**2) * 0.5 * (r[i]**2 + r[i-1]**2)
-                M[ix, ix] -= 1/(dr**2 * r[i]**2) * 0.5 * (2*r[i]**2 + r[i-1]**2 + r[i+1]**2)
-                M[ix, ix+1] += 1/(dr**2 * r[i]**2) * 0.5 * (r[i]**2 + r[i+1]**2)
+                M[ix, ix - 1] += 1 / (dr**2 * r[i]**2) * \
+                    0.5 * (r[i]**2 + r[i - 1]**2)
+                M[ix, ix] -= 1 / (dr**2 * r[i]**2) * 0.5 * \
+                    (2 * r[i]**2 + r[i - 1]**2 + r[i + 1]**2)
+                M[ix, ix + 1] += 1 / (dr**2 * r[i]**2) * \
+                    0.5 * (r[i]**2 + r[i + 1]**2)
 
-        for j in range(1, self.star.mesh_size[0]-1):
-            for i in range(1,self.star.mesh_size[1]):
+        for j in range(1, self.star.mesh_size[0] - 1):
+            for i in range(1, self.star.mesh_size[1]):
 
-                jm = (j-1) * self.star.mesh_size[1] + i
-                jp = (j+1) * self.star.mesh_size[1] + i
-                M[ix, jm] += 1/(r[i]**2 * np.sin(th[j]) * dth**2) * 0.5 * (np.sin(th[j]) + np.sin(th[j-1]))
-                M[ix, ix] -= 1/(r[i]**2 * np.sin(th[j]) * dth**2) * 0.5 * (2 * np.sin(th[j]) + np.sin(th[j-1]) + np.sin(th[j+1]))
-                M[ix, jp] +=  1/(r[i]**2 * np.sin(th[j]) * dth**2) * 0.5 * (np.sin(th[j]) + np.sin(th[j+1]))
+                jm = (j - 1) * self.star.mesh_size[1] + i
+                jp = (j + 1) * self.star.mesh_size[1] + i
+                M[ix, jm] += 1 / (r[i]**2 * np.sin(th[j]) * dth**2) * \
+                    0.5 * (np.sin(th[j]) + np.sin(th[j - 1]))
+                M[ix, ix] -= 1 / (r[i]**2 * np.sin(th[j]) * dth**2) * 0.5 * \
+                    (2 * np.sin(th[j]) + np.sin(th[j - 1]) + np.sin(th[j + 1]))
+                M[ix, jp] += 1 / (r[i]**2 * np.sin(th[j]) * dth**2) * \
+                    0.5 * (np.sin(th[j]) + np.sin(th[j + 1]))
 
         # do boundaries
-        for i in range(1,self.star.mesh_size[1]):
+        for i in range(1, self.star.mesh_size[1]):
             ix = i
             jp = self.star.mesh_size[1] + i
-            M[ix, ix] -= 4/(r[i]**2 * dth**2)
-            M[ix, jp] += 4/(r[i]**2 * dth**2)
+            M[ix, ix] -= 4 / (r[i]**2 * dth**2)
+            M[ix, jp] += 4 / (r[i]**2 * dth**2)
 
-            ix = (self.star.mesh_size[0]-1)*self.star.mesh_size[1] + i
-            jm = (self.star.mesh_size[0]-2)*self.star.mesh_size[1] + i
-            M[ix,jm] += 2/(r[i]**2 * dth**2)
-            M[ix,ix] -= 2/(r[i]**2 * dth**2)
-
-        # print(M)
-
-        # Phi = fsolve(root_solve, self.star.Phi.flatten()
-        #              ).reshape(self.star.mesh_size)
+            ix = (self.star.mesh_size[0] - 1) * self.star.mesh_size[1] + i
+            jm = (self.star.mesh_size[0] - 2) * self.star.mesh_size[1] + i
+            M[ix, jm] += 2 / (r[i]**2 * dth**2)
+            M[ix, ix] -= 2 / (r[i]**2 * dth**2)
 
         # add on g's
-        M[:,:] += np.diag(gPhi.flatten())
+        M[:, :] += np.diag(gPhi.flatten())
 
         A_idx = A[0] * self.star.mesh_size[1] + A[1]
         B_idx = B[0] * self.star.mesh_size[1] + B[1]
 
-        M[:,A_idx] += gA.flatten()
+        M[:, A_idx] += gA.flatten()
         M[:, B_idx] += gB.flatten()
 
         for j in range(self.star.mesh_size[0]):
             ix = j * self.star.mesh_size[1]
 
-            M[:,ix] += g0.flatten()
+            M[:, ix] += g0.flatten()
 
         Phi = np.linalg.solve(M, R).reshape(self.star.mesh_size)
-
 
         print(f"Phi = {Phi[0,:]}")
 

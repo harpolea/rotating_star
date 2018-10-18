@@ -52,6 +52,9 @@ class Star(object):
 
             self.r_coords = np.array(
                 range(1, self.mesh_size[2] + 1)) / (self.mesh_size[2] - 1)
+
+            self.Psi[:, :, :] = -0.5 * self.r_coords[np.newaxis, np.newaxis, :]**2 * \
+                (1 - self.mu_coords[np.newaxis, :, np.newaxis]**2)
         else:
             self.mu_coords = np.array(
                 range(self.mesh_size[0])) / (self.mesh_size[0] - 1)
@@ -59,22 +62,22 @@ class Star(object):
             if solver == "Newton":
                 self.r_coords = np.array(
                     range(self.mesh_size[1])) / (self.mesh_size[1] - 2)
-                self.theta_coords = 0.5 * np.pi * np.array(range(self.mesh_size[0])) / (self.mesh_size[0] - 1)
+                self.theta_coords = 0.5 * np.pi * \
+                    np.array(range(self.mesh_size[0])
+                             ) / (self.mesh_size[0] - 1)
+                self.omegabar = np.zeros(self.mesh_size)
+                self.omegabar[:, :] = self.r_coords[np.newaxis, :] * \
+                    np.sqrt(1 - np.cos(self.theta_coords[:, np.newaxis])**2)
             else:
+
                 self.r_coords = np.array(
                     range(1, self.mesh_size[1] + 1)) / (self.mesh_size[1] - 1)
+                self.Psi = np.zeros(self.mesh_size)
+                self.Psi[:, :] = -0.5 * self.r_coords[np.newaxis, :]**2 * \
+                    (1 - self.mu_coords[:, np.newaxis]**2)
+                self.omegabar = np.sqrt(-2 * self.Psi)
 
         self.rmax = self.r_coords[-1]
-
-        self.Psi = np.zeros(self.mesh_size)
-        if self.dim == 3:
-            self.Psi[:, :, :] = -0.5 * self.r_coords[np.newaxis, np.newaxis, :]**2 * \
-                (1 - self.mu_coords[np.newaxis, :, np.newaxis]**2)
-        else:
-            self.Psi[:, :] = -0.5 * self.r_coords[np.newaxis, :]**2 * \
-                (1 - self.mu_coords[:, np.newaxis]**2)
-
-        self.omegabar = np.sqrt(-2*self.Psi)
 
         self.H = np.zeros(self.mesh_size)
         self.Omega2 = 0
@@ -89,10 +92,10 @@ class Star(object):
         # make a guess for rho and Phi
         if self.dim == 3:
             self.rho[:, :, :] = 1 - self.r_coords[np.newaxis, np.newaxis, :]
-            print(f"rho = {self.rho[0,0,:]}")
+            # print(f"rho = {self.rho[0,0,:]}")
         else:
             self.rho[:, :] = 1 - self.r_coords[np.newaxis, :]
-            print(f"rho = {self.rho[0,:]}")
+            # print(f"rho = {self.rho[0,:]}")
 
         self.rho[self.rho < 0] = 0
 
@@ -101,7 +104,6 @@ class Star(object):
         self.H = self.eos.h_from_rho(self.rho)
 
         self.solver.initialize_solver(parameters)
-
 
     def solve_star(self, max_steps=100):
 
