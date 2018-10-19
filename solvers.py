@@ -2,6 +2,8 @@ from abc import ABCMeta, abstractmethod
 import numpy as np
 from scipy.special import lpmv, factorial, eval_legendre
 
+import eos
+
 
 class Solver(metaclass=ABCMeta):
 
@@ -127,11 +129,7 @@ class SCF(Solver):
         Iterate single step until errors in enthalpy, spin rate and C are small
         """
         delta = 1e-4
-
-        H_err = 1
-        Omega2_err = 1
-        C_err = 1
-
+        
         for i in range(max_steps):
             print(f"Step {i}")
             H_err, Omega2_err, C_err = self.step()
@@ -233,6 +231,9 @@ class Newton(Solver):
         if not self.initialized:
             raise Exception("solver not initialized")
 
+        A = self.star.eos.A
+        B = self.star.eos.B
+
         Phi = self.star.Phi
         Phi0 = Phi[0, 0]
 
@@ -241,11 +242,11 @@ class Newton(Solver):
         H = self.H_from_Phi(Phi)
         # H0 = H[0, 0]
 
-        rho0 = self.rho0  # rho[0, 0]
-        H0 = self.star.eos.h_from_rho(rho0)
+        rho = self.star.eos.rho_from_h(H)
+        rho /= np.max(rho[:,:A[1]])
 
-        A = self.star.eos.A
-        B = self.star.eos.B
+        rho0 = rho[0, 0]  # rho[0, 0]
+        H0 = self.star.eos.h_from_rho(rho0)
 
         C_Psi = (Phi[B] - Phi[A]) / (Chi[A] - Chi[B])
 
@@ -254,14 +255,12 @@ class Newton(Solver):
 
         # C = 0.5 * (Phi[A] + Phi[B] + Psi[A] + Psi[B])
 
-        C = (Phi[A] + Psi[A] - (Phi0 + Psi0) * H[A] / H0) / (1 - H[A] / H0)
+        C = (Phi[A] + Psi[A])  # - (Phi0 + Psi0) * H[A] / H0) / (1 - H[A] / H0)
 
         _B = C - Phi - Psi
         B0 = _B[0, 0]
-
-        # rho = self.star.eos.rho_from_h(H)
-        rho = self.star.eos.rho_from_h(H) / self.rho0 * \
-            (H0 / (C - Phi0 - Psi0) * (C - Phi - Psi))
+        # rho = self.star.eos.rho_from_h(H) / self.rho0 * \
+        #     (H0 / (C - Phi0 - Psi0) * (C - Phi - Psi))
 
         print(f"B0 = {B0}, Phi0 = {Phi0}, Psi0 = {Psi[0,0]}, C = {C}")
         # print(f"B = {_B}")
@@ -270,7 +269,7 @@ class Newton(Solver):
 
         print(f"rho0 = {rho0}")
 
-        gPhi = 4 * np.pi * self.star.G * rho_H_dash * H0 / (rho0 * B0)
+        gPhi = 4 * np.pi * self.star.G * rho_H_dash * H0 / B0
 
         gA = - gPhi * ((Chi[A] - Chi) / (Chi[A] - Chi[B]) -
                        _B / B0 * (Chi[A] - Chi0) / (Chi[A] - Chi[B]))
@@ -308,6 +307,7 @@ class Newton(Solver):
         nx = self.star.mesh_size[0] * self.star.mesh_size[1]
         M = np.zeros((nx, nx))
 
+        # del^2_r
         for j in range(self.star.mesh_size[0]):
             for i in range(1, self.star.mesh_size[1] - 1):
                 ix = j * self.star.mesh_size[1] + i
@@ -323,6 +323,7 @@ class Newton(Solver):
                     M[ix, ix] -= 2 / (r[i]**4 * h**2)
                     M[ix, ix + 1] += 1 / (r[i]**4 * h**2)
 
+        # del^2_theta
         for j in range(1, self.star.mesh_size[0] - 1):
             for i in range(1, self.star.mesh_size[1]):
 
@@ -350,11 +351,14 @@ class Newton(Solver):
                 M[ix, ix] -= c
 
         for i in range(1, self.star.mesh_size[1]):
+
+            # theta = 0
             ix = i
             jp = self.star.mesh_size[1] + i
-            M[ix, ix] -= 4 / (r[i]**2 * dth**2)
-            M[ix, jp] += 4 / (r[i]**2 * dth**2)
+            M[ix, ix] -= 1 / (r[i]**2 * dth)
+            M[ix, jp] += 1 / (r[i]**2 * dth)
 
+            # theta = pi/2
             ix = (self.star.mesh_size[0] - 1) * self.star.mesh_size[1] + i
             jm = (self.star.mesh_size[0] - 2) * self.star.mesh_size[1] + i
             M[ix, jm] += 2 / (r[i]**2 * dth**2)
@@ -376,11 +380,13 @@ class Newton(Solver):
 
             M[:, ix] += g0.flatten()
 
-        # # r = infty
+        # # upper r boundary
         # for j in range(self.star.mesh_size[0]):
+        #     # NOTE: DO NOT include this or the computer will restart itself
         #
         #     ix = j * self.star.mesh_size[1] + self.star.mesh_size[1]-1
-        #     M[ix, :] = 0
+        #     M[ix, ix - 1] += 2 / (r[i]**4 * h**2)
+        #     M[ix, ix] -= 2 / (r[i]**4 * h**2)
 
         Phi = np.linalg.solve(M, R).reshape(self.star.mesh_size)
 
@@ -388,8 +394,11 @@ class Newton(Solver):
 
         H = self.H_from_Phi(Phi)
 
-        rho = self.star.eos.rho_from_h(H) \
-            / self.rho0 * (H0 / (C - Phi0 - Psi0) * (C - Phi - Psi))
+        rho = self.star.eos.rho_from_h(H)
+        rho /= np.max(rho[:,:A[1]])
+
+        # rho = self.star.eos.rho_from_h(H) \
+        #     / self.rho0 * (H0 / (C - Phi0 - Psi0) * (C - Phi - Psi))
 
         C_Psi = (Phi[B] - Phi[A]) / (Chi[A] - Chi[B])
 
@@ -425,10 +434,6 @@ class Newton(Solver):
 
         delta = 1e-4
 
-        H_err = 1
-        Phi_err = 1
-        rho_err = 1
-
         for i in range(max_steps):
             print(f"Step {i}")
             H_err, C_err = self.step()
@@ -453,32 +458,6 @@ class Newton(Solver):
 
         raise NotImplementedError(
             "calc_gravitational_energy not implemented for Newton solver")
-
-
-class Picard(Solver):
-    """ From Rieutord et al 2016 """
-
-    def initialize_solver(self, parameters):
-        self.initialized = True
-
-    def solve(self, max_steps=100):
-        if not self.initialized:
-            raise Exception("solver not initialized")
-        pass
-
-    def calc_mass(self):
-        if not self.initialized:
-            raise Exception("solver not initialized")
-
-        raise NotImplementedError(
-            "calc_mass not implemented for Picard solver")
-
-    def calc_gravitational_energy(self):
-        if not self.initialized:
-            raise Exception("solver not initialized")
-
-        raise NotImplementedError(
-            "calc_gravitational_energy not implemented for Picard solver")
 
 
 class SCF3(Solver):
