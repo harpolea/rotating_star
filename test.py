@@ -25,8 +25,9 @@ class TestStar(object):
         self.eos = "polytrope"
         self.solver = "SCF"
 
-        self.mesh_size = (3, 3, 3)
-        self.parameters = {'K': 1, 'N': 0, 'A': (2, 0, 0), 'B': (1, 0, 0), 'Omega0':1}
+        self.mesh_size = (3, 3)
+        self.parameters = {'K': 1, 'N': 0, 'A': (
+            2, 0, 0), 'B': (1, 0, 0), 'Omega0': 1}
 
         self.star = Star(self.rotation_law, self.eos,
                          self.solver, self.mesh_size)
@@ -37,9 +38,9 @@ class TestStar(object):
         pass
 
     def test_object_initialization(self):
-        assert type(self.star.eos) == type(eos.Polytrope())
-        assert type(self.star.rotation_law) == type(rotation_laws.RigidRotation())
-        assert type(self.star.solver) == type(solvers.SCF(self.star))
+        assert isinstance(self.star.eos, eos.Polytrope)
+        assert isinstance(self.star.rotation_law, rotation_laws.RigidRotation)
+        assert isinstance(self.star.solver, solvers.SCF)
 
         assert np.shape(self.star.rho) == self.star.mesh_size
         assert np.shape(self.star.Phi) == self.star.mesh_size

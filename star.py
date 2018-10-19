@@ -60,7 +60,7 @@ class Star(object):
                 range(self.mesh_size[0])) / (self.mesh_size[0] - 1)
 
             if solver == "Newton":
-                self.r_coords = np.array(
+                self.r_coords = 2*np.array(
                     range(self.mesh_size[1])) / (self.mesh_size[1] - 2)
                 self.theta_coords = 0.5 * np.pi * \
                     np.array(range(self.mesh_size[0])
@@ -128,8 +128,8 @@ class Star(object):
             ax.axvline(x=rA, linestyle=':', color='lightgrey')
             ax.axvline(x=rB, linestyle=':', color='lightgrey')
 
-        axes[0].text(rA, 1.1, r"$r_A$")
-        axes[0].text(rB, 1.1, r"$r_B$")
+        axes[0].text(rA, 1.1 * np.max(self.rho), r"$r_A$")
+        axes[0].text(rB, 1.1 * np.max(self.rho), r"$r_B$")
 
         if self.dim == 3:
             axes[0].plot(self.r_coords, self.rho[0, 0, :])
@@ -151,7 +151,7 @@ class Star(object):
                          marker='o', label=r'$\mu = 1$')
 
         axes[0].set_ylabel(r'$\rho$')
-        axes[0].set_ylim([0, 1.05])
+        # axes[0].set_ylim([0, 1.05 * np.max(self.rho)])
 
         axes[1].set_ylabel(r'$\Phi$')
         axes[2].set_ylabel(r'$H$')
