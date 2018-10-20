@@ -76,9 +76,13 @@ class Polytrope(EOS):
         if not self.initialized:
             raise Exception("EOS not initialized")
 
-        h = np.zeros_like(rho)
+        if isinstance(rho, np.ndarray):
+            h = np.zeros_like(rho)
 
-        h[rho > 0] = (1 + self.N) * self.p_from_rho(rho[rho > 0]) / rho[rho > 0]
+            h[rho > 0] = (1 + self.N) * \
+                self.p_from_rho(rho[rho > 0]) / rho[rho > 0]
+        else:
+            h = (1 + self.N) * self.p_from_rho(rho) / rho
 
         return h
 
@@ -103,16 +107,15 @@ class Polytrope(EOS):
         if not self.initialized:
             raise Exception("EOS not initialized")
 
-        return self.N * h**(self.N-1) / (self.K * (1 + self.N))**self.N
+        return self.N * h**(self.N - 1) / (self.K * (1 + self.N))**self.N
 
         rho = np.zeros_like(h)
         rho[h < 0] = 0
 
-        rho[h >= 0] = self.N * h[h >= 0]**(self.N-1) / (self.K * (1 + self.N))**self.N
+        rho[h >= 0] = self.N * \
+            h[h >= 0]**(self.N - 1) / (self.K * (1 + self.N))**self.N
 
         return rho
-
-
 
 
 class WD_matter(EOS):
