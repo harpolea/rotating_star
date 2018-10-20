@@ -1,7 +1,6 @@
 from abc import ABCMeta, abstractmethod
 import numpy as np
 from scipy.special import lpmv, factorial, eval_legendre
-from scipy.optimize import fsolve
 
 
 class Solver(metaclass=ABCMeta):
@@ -14,7 +13,7 @@ class Solver(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def solve(self, max_steps=100):
+    def solve(self, max_steps=100, delta=1e-3):
         pass
 
     @abstractmethod
@@ -122,11 +121,10 @@ class SCF(Solver):
 
         return H_err, Omega2_err, C_err
 
-    def solve(self, max_steps=100):
+    def solve(self, max_steps=100, delta=1e-4):
         """
         Iterate single step until errors in enthalpy, spin rate and C are small
         """
-        delta = 1e-4
 
         H_err = 1
         Omega2_err = 1
@@ -370,8 +368,7 @@ class Newton(Solver):
 
         return H_err, Phi_err, 0
 
-    def solve(self, max_steps=100):
-        delta = 1e-4
+    def solve(self, max_steps=100, delta=1e-3):
 
         H_err = 1
         Omega2_err = 1
@@ -512,11 +509,10 @@ class SCF3(Solver):
 
         return H_err, Omega2_err, C_err
 
-    def solve(self, max_steps=100):
+    def solve(self, max_steps=100, delta=1e-3):
         """
         Iterate single step until errors in enthalpy, spin rate and C are small
         """
-        delta = 1e-3
 
         H_err = 1
         Omega2_err = 1

@@ -105,9 +105,9 @@ class Star(object):
 
         self.solver.initialize_solver(parameters)
 
-    def solve_star(self, max_steps=100):
+    def solve_star(self, max_steps=100, delta=1e-3):
 
-        self.solver.solve(max_steps)
+        self.solver.solve(max_steps, delta)
 
         # find mass and gravitational energy
         M = self.solver.calc_mass()
