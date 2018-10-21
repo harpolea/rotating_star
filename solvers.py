@@ -238,16 +238,17 @@ class Newton(Solver):
 
         Chi = self.Chi
         Chi0 = Chi[0, 0]
-        H = self.H_from_Phi(Phi)
+        H = self.star.H#_from_Phi(Phi)
         H[A] = 0
         H[B] = 0
-        # H0 = H[0, 0]
+        H0 = H[0, 0]
 
-        rho = self.star.eos.rho_from_h(H)
-        rho /= np.max(rho[0,0])
+        rho = self.star.rho#eos.rho_from_h(H)
+        # rho[rho < 0] = 0
+        # rho /= np.max(rho[0,0])
 
         rho0 = self.rho0  # rho[0, 0]  # rho[0, 0]
-        H0 = self.star.eos.h_from_rho(rho0)
+        # H0 = self.star.eos.h_from_rho(rho0)
 
         C_Psi = (Phi[B] - Phi[A]) / (Chi[A] - Chi[B])
 
@@ -334,8 +335,8 @@ class Newton(Solver):
             for k in range(self.star.mesh_size[0]):
                 kx = k * self.star.mesh_size[1] + 1
 
-                c = 6 / dr**2 * np.cos(max(0, dth * (k - 0.5))) - \
-                    np.cos(min(0.5 * np.pi, dth * (k + 0.5)))
+                c = 6 / dr**2 * (np.cos(max(0, dth * (k - 0.5))) -
+                    np.cos(min(0.5 * np.pi, dth * (k + 0.5))))
                 M[ix, kx] += c
                 M[ix, ix] -= c
 
@@ -380,12 +381,15 @@ class Newton(Solver):
 
         Phi = np.linalg.solve(M, R).reshape(self.star.mesh_size)
 
-        print(f"Phi = {Phi[0,:]}")
+        # print(f"Phi = {Phi[0,:]}")
 
         H = self.H_from_Phi(Phi)
 
         rho = self.star.eos.rho_from_h(H)
+        # rho[rho < 0] = 0
         rho /= np.max(rho[0,0])
+
+        H = self.star.eos.h_from_rho(rho)
 
         # rho = self.star.eos.rho_from_h(H) \
         #     / self.rho0 * (H0 / (C - Phi0 - Psi0) * (C - Phi - Psi))
@@ -397,7 +401,7 @@ class Newton(Solver):
         # C = 0.5 * (Phi[A] + Phi[B] + Psi[A] + Psi[B])
         C = (Phi[A] + Psi[A])
 
-        print(f"rho = {rho[0,:]}")
+        # print(f"rho = {rho[0,:]}")
 
         H_err = np.max(np.abs(H - self.star.H)) / np.max(np.abs(H))
 
@@ -417,7 +421,7 @@ class Newton(Solver):
         print(
             f"Errors: H_err = {H_err}, C_err = {C_err}, rho_err = {rho_err}")
 
-        return rho_err, rho_err
+        return H_err, C_err
 
     def solve(self, max_steps=100, delta=1e-3):
         if not self.initialized:

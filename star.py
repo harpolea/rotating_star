@@ -67,7 +67,7 @@ class Star(object):
                              ) / (self.mesh_size[0] - 1)
                 self.omegabar = np.zeros(self.mesh_size)
                 self.omegabar[:, :] = self.r_coords[np.newaxis, :] * \
-                    np.sqrt(1 - np.cos(self.theta_coords[:, np.newaxis])**2)
+                    np.sin(self.theta_coords[:, np.newaxis])
             else:
 
                 self.r_coords = np.array(
@@ -154,7 +154,7 @@ class Star(object):
                          marker='o', label=r'$\mu = 1$')
 
         axes[0].set_ylabel(r'$\rho$')
-        # axes[0].set_ylim([0, 1.05 * np.max(self.rho)])
+        axes[0].set_ylim([0, 1.05])
 
         axes[1].set_ylabel(r'$\Phi$')
         axes[2].set_ylabel(r'$H$')
