@@ -154,7 +154,7 @@ class Star(object):
                          marker='o', label=r'$\mu = 1$')
 
         axes[0].set_ylabel(r'$\rho$')
-        axes[0].set_ylim([0, 1.05])
+        # axes[0].set_ylim([-0.05, 1.05])
 
         axes[1].set_ylabel(r'$\Phi$')
         axes[2].set_ylabel(r'$H$')

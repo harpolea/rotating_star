@@ -220,9 +220,9 @@ class Newton(Solver):
 
         Psi = C_Psi * Chi
 
-        # C = 0.5 * (Phi[A] + Phi[B] + Psi[A] + Psi[B])
+        C = 0.5 * (Phi[A] + Phi[B] + Psi[A] + Psi[B])
 
-        C = Phi[A] + Psi[A]
+        # C = Phi[A] + Psi[A]
 
         return C - Phi - Psi
 
@@ -233,17 +233,19 @@ class Newton(Solver):
         A = self.star.eos.A
         B = self.star.eos.B
 
+        mesh_size = self.star.mesh_size
+
         Phi = self.star.Phi
         Phi0 = Phi[0, 0]
 
         Chi = self.Chi
         Chi0 = Chi[0, 0]
-        H = self.star.H#_from_Phi(Phi)
-        H[A] = 0
-        H[B] = 0
+        H = self.star.H  # _from_Phi(Phi)
+        # H[A] = 0
+        # H[B] = 0
         H0 = H[0, 0]
 
-        rho = self.star.rho#eos.rho_from_h(H)
+        rho = self.star.rho  # eos.rho_from_h(H)
         # rho[rho < 0] = 0
         # rho /= np.max(rho[0,0])
 
@@ -255,21 +257,19 @@ class Newton(Solver):
         Psi = C_Psi * Chi
         Psi0 = Psi[0, 0]
 
-        # C = 0.5 * (Phi[A] + Phi[B] + Psi[A] + Psi[B])
+        C = 0.5 * (Phi[A] + Phi[B] + Psi[A] + Psi[B])
 
-        C = Phi[A] + Psi[A]  # - (Phi0 + Psi0) * H[A] / H0) / (1 - H[A] / H0)
+        # C = Phi[A] + Psi[A]  # - (Phi0 + Psi0) * H[A] / H0) / (1 - H[A] / H0)
 
         _B = C - Phi - Psi
         B0 = _B[0, 0]
         # rho = self.star.eos.rho_from_h(H) / self.rho0 * \
         #     (H0 / (C - Phi0 - Psi0) * (C - Phi - Psi))
 
-        print(f"B0 = {B0}, Phi0 = {Phi0}, Psi0 = {Psi[0,0]}, C = {C}")
+        # print(f"B0 = {B0}, Phi0 = {Phi0}, Psi0 = {Psi[0,0]}, C = {C}")
         # print(f"B = {_B}")
 
         rho_H_dash = self.star.eos.rho_H_dash(H)
-
-        print(f"rho0 = {rho0}")
 
         gPhi = 4 * np.pi * self.star.G * rho_H_dash * H0 / B0
 
@@ -287,24 +287,17 @@ class Newton(Solver):
         r = self.star.r_coords
         th = self.star.theta_coords
 
-        r2d = np.zeros(self.star.mesh_size)
-        r2d[:, :] = r[np.newaxis, :]
-
-        th2d = np.zeros(self.star.mesh_size)
-        th2d[:, :] = th[:, np.newaxis]
-
         dr = r[1] - r[0]
         dth = th[1] - th[0]
 
         # calculate LHS matrix operator
-        nx = self.star.mesh_size[0] * self.star.mesh_size[1]
+        nx = mesh_size[0] * mesh_size[1]
         M = np.zeros((nx, nx))
 
         # del^2_r
-        for j in range(self.star.mesh_size[0]):
-            for i in range(1, self.star.mesh_size[1] - 1):
-                ix = j * self.star.mesh_size[1] + i
-                # if r[i] < 1:
+        for j in range(mesh_size[0]):
+            for i in range(1, mesh_size[1] - 1):
+                ix = j * mesh_size[1] + i
                 M[ix, ix - 1] += 1 / (dr**2 * r[i]**2) * \
                     0.5 * (r[i]**2 + r[i - 1]**2)
                 M[ix, ix] -= 1 / (dr**2 * r[i]**2) * 0.5 * \
@@ -313,11 +306,11 @@ class Newton(Solver):
                     0.5 * (r[i]**2 + r[i + 1]**2)
 
         # del^2_theta
-        for j in range(1, self.star.mesh_size[0] - 1):
-            for i in range(1, self.star.mesh_size[1]):
-                ix = j * self.star.mesh_size[1] + i
-                jm = (j - 1) * self.star.mesh_size[1] + i
-                jp = (j + 1) * self.star.mesh_size[1] + i
+        for j in range(1, mesh_size[0] - 1):
+            for i in range(1, mesh_size[1]):
+                ix = j * mesh_size[1] + i
+                jm = (j - 1) * mesh_size[1] + i
+                jp = (j + 1) * mesh_size[1] + i
 
                 M[ix, jm] += 1 / (r[i]**2 * np.sin(th[j]) * dth**2) * \
                     0.5 * (np.sin(th[j]) + np.sin(th[j - 1]))
@@ -329,37 +322,46 @@ class Newton(Solver):
         # do boundaries
 
         # r = 0
-        for j in range(self.star.mesh_size[0]):
-            ix = j * self.star.mesh_size[1]
+        for j in range(mesh_size[0]):
+            ix = j * mesh_size[1]
 
-            for k in range(self.star.mesh_size[0]):
-                kx = k * self.star.mesh_size[1] + 1
+            for k in range(mesh_size[0]):
+                kx = k * mesh_size[1] + 1
 
                 c = 6 / dr**2 * (np.cos(max(0, dth * (k - 0.5))) -
-                    np.cos(min(0.5 * np.pi, dth * (k + 0.5))))
+                                 np.cos(min(0.5 * np.pi, dth * (k + 0.5))))
                 M[ix, kx] += c
                 M[ix, ix] -= c
 
         # upper r boundary
-        for j in range(self.star.mesh_size[0]):
+        for j in range(mesh_size[0]):
             # NOTE: DO NOT include this or the computer will restart itself
             # use first order accurate backwards second derivative
+            i = mesh_size[1] - 1
+            ix = j * mesh_size[1] + mesh_size[1] - 1
+            M[ix, ix - 2] += 1 / (r[i]**2 * dr**2) * \
+                0.5 * (r[i - 2]**2 + r[i - 1]**2)
+            M[ix, ix - 1] -= 1 / (r[i]**2 * dr**2) * \
+                0.5 * (r[i]**2 + 2 * r[i - 1]**2 + r[i - 2]**2)
+            M[ix, ix] += 1 / (r[i]**2 * dr**2) * \
+                0.5 * (r[i]**2 + r[i - 1]**2)
 
-            ix = j * self.star.mesh_size[1] + self.star.mesh_size[1] - 1
-            M[ix, ix - 2] += 1 / (r[i]**4 * dr**2)
-            M[ix, ix - 1] -= 2 / (r[i]**4 * dr**2)
-            M[ix, ix] += 1 / (r[i]**4 * dr**2)
+            #
+            # M[ix, ix - 1] += 2 / (r[i]**2 * dr**2)* \
+            #     0.5 * (r[i]**2 + r[i - 1]**2)
+            # M[ix, ix] -= 2 / (r[i]**2 * dr**2)* \
+            #     0.5 * (r[i]**2 + r[i - 1]**2)
 
-        for i in range(1, self.star.mesh_size[1]):
+        for i in range(1, mesh_size[1]):
             # theta = 0
             ix = i
-            jp = self.star.mesh_size[1] + i
-            M[ix, ix] -= 1 / (r[i]**2 * dth)
-            M[ix, jp] += 1 / (r[i]**2 * dth)
+            jp = mesh_size[1] + i
+            M[ix, ix] -= 4 / (r[i]**2 * dth**2)
+            M[ix, jp] += 4 / (r[i]**2 * dth**2)
 
             # theta = pi/2
-            ix = (self.star.mesh_size[0] - 1) * self.star.mesh_size[1] + i
-            jm = (self.star.mesh_size[0] - 2) * self.star.mesh_size[1] + i
+            ix = (mesh_size[0] - 1) * mesh_size[1] + i
+            jm = (mesh_size[0] - 2) * mesh_size[1] + i
             M[ix, jm] += 2 / (r[i]**2 * dth**2)
             M[ix, ix] -= 2 / (r[i]**2 * dth**2)
 
@@ -368,28 +370,34 @@ class Newton(Solver):
         # add on g's
         M[:, :] += np.diag(gPhi.flatten())
 
-        A_idx = A[0] * self.star.mesh_size[1] + A[1]
-        B_idx = B[0] * self.star.mesh_size[1] + B[1]
+        A_idx = A[0] * mesh_size[1] + A[1]
+        B_idx = B[0] * mesh_size[1] + B[1]
 
         M[:, A_idx] += gA.flatten()
         M[:, B_idx] += gB.flatten()
 
-        for j in range(self.star.mesh_size[0]):
-            ix = j * self.star.mesh_size[1]
+        # for j in range(mesh_size[0]):
+        #     ix = j * mesh_size[1]
 
-            M[:, ix] += g0.flatten()
+        M[:, 0] += g0.flatten() #/ mesh_size[0]
 
-        Phi = np.linalg.solve(M, R).reshape(self.star.mesh_size)
+        Phi = np.linalg.solve(M, R).reshape(mesh_size)
+
+        # check solution?
+        # err = np.matmul(M, Phi.flatten()) - R
+        # print(f"err = {err[100:105]}")
 
         # print(f"Phi = {Phi[0,:]}")
 
         H = self.H_from_Phi(Phi)
 
         rho = self.star.eos.rho_from_h(H)
-        # rho[rho < 0] = 0
-        rho /= np.max(rho[0,0])
+        rho[rho < 0] = 0
+        rho /= rho[0, 0]  # np.max(rho[:,min(A[1], B[1])])
 
         H = self.star.eos.h_from_rho(rho)
+
+        Phi /= rho[0,0]**(1/self.star.eos.N)
 
         # rho = self.star.eos.rho_from_h(H) \
         #     / self.rho0 * (H0 / (C - Phi0 - Psi0) * (C - Phi - Psi))
@@ -398,16 +406,18 @@ class Newton(Solver):
 
         Psi = C_Psi * Chi
 
-        # C = 0.5 * (Phi[A] + Phi[B] + Psi[A] + Psi[B])
-        C = (Phi[A] + Psi[A])
+        C = 0.5 * (Phi[A] + Phi[B] + Psi[A] + Psi[B])
+        # C = (Phi[A] + Psi[A])
 
         # print(f"rho = {rho[0,:]}")
 
-        H_err = np.max(np.abs(H - self.star.H)) / np.max(np.abs(H))
+        idx = max(A[1], B[1])
 
-        Phi_err = np.max(np.abs(Phi - self.star.Phi)) / np.max(np.abs(Phi))
+        H_err = np.max(np.abs(H[:,:idx] - self.star.H[:,:idx])) / np.max(np.abs(H[:,:idx]))
 
-        rho_err = np.max(np.abs(rho - self.star.rho)) / np.max(np.abs(rho))
+        Phi_err = np.max(np.abs(Phi[:,:idx] - self.star.Phi[:,:idx])) / np.max(np.abs(Phi[:,:idx]))
+
+        rho_err = np.max(np.abs(rho[:,:idx] - self.star.rho[:,:idx])) / np.max(np.abs(rho[:,:idx]))
 
         C_err = np.abs(C - self.star.C) / np.abs(C)
 
@@ -419,9 +429,9 @@ class Newton(Solver):
         self.star.C = C
 
         print(
-            f"Errors: H_err = {H_err}, C_err = {C_err}, rho_err = {rho_err}")
+            f"\tErrors: H_err = {H_err}, C_err = {C_err}, rho_err = {rho_err}")
 
-        return H_err, C_err
+        return C_err, C_err
 
     def solve(self, max_steps=100, delta=1e-3):
         if not self.initialized:
