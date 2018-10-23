@@ -1,6 +1,11 @@
 from abc import ABCMeta, abstractmethod
 import numpy as np
 from scipy.special import lpmv, factorial, eval_legendre
+from scipy.integrate import simps
+from scipy.optimize import brentq
+
+from eos import Polytrope
+from rotation_laws import JConstantRotation
 
 
 class Solver(metaclass=ABCMeta):
@@ -29,7 +34,16 @@ class Solver(metaclass=ABCMeta):
 class SCF(Solver):
 
     def initialize_solver(self, parameters):
-        pass
+        self.star.r_coords = np.array(
+            range(1, self.star.mesh_size[1] + 1)) / (self.star.mesh_size[1] - 1)
+
+        self.star.mu_coords = np.array(
+            range(self.star.mesh_size[0])) / (self.star.mesh_size[0] - 1)
+
+        self.star.Psi = np.zeros(self.star.mesh_size)
+        self.star.Psi[:, :] = -0.5 * self.star.r_coords[np.newaxis, :]**2 * \
+            (1 - self.star.mu_coords[:, np.newaxis]**2)
+        self.star.omegabar = np.sqrt(-2 * self.star.Psi)
 
     def step(self):
         """ Implements 2d self-consistent field algorithm """
@@ -203,7 +217,7 @@ class Newton(Solver):
         self.star.H = H  # self.star.eos.h_from_rho(self.star.rho)
 
         self.star.rho = self.star.eos.rho_from_h(H)
-        self.star.rho *= self.rho0 / self.star.rho[0, 0]
+        self.star.rho *= self.rho0 / self.star.rho[-1, 0]
 
         print(f"rho = {self.star.rho[0,:]}")
         print(f"H = {H[0,:]}")
@@ -219,9 +233,9 @@ class Newton(Solver):
 
         Psi = C_Psi * Chi
 
-        C = 0.5 * (Phi[A] + Phi[B] + Psi[A] + Psi[B])
+        C = 0.5 * (Phi[A] + Phi[B] + + Psi[A] + Psi[B])
 
-        # C = Phi[A] + Psi[A]
+        # print(f"C = {C}, Phi[A] = {Phi[A]}. Phi[B] = {Phi[B]}, Psi[A] = {Psi[A]}, Psi[B] = {Psi[B]}")
 
         return C - Phi - Psi
 
@@ -372,12 +386,6 @@ class Newton(Solver):
 
         Phi = np.linalg.solve(M, R).reshape(mesh_size)
 
-        # check solution?
-        # err = np.matmul(M, Phi.flatten()) - R
-        # print(f"err = {err[100:105]}")
-
-        # print(f"Phi = {Phi[:,0]}")
-
         H = self.H_from_Phi(Phi)
 
         rho = self.star.eos.rho_from_h(H)
@@ -395,7 +403,7 @@ class Newton(Solver):
 
         Psi = C_Psi * Chi
 
-        # C = 0.5 * (Phi[A] + Phi[B] + Psi[A] + Psi[B])
+        C = 0.5 * (Phi[A] + Phi[B] + Psi[A] + Psi[B])
         # C = (Phi[A] + Psi[A])
 
         # print(f"rho = {rho[0,:]}")
@@ -473,6 +481,164 @@ class Newton(Solver):
                     np.cos(0.5 * (th[max(j - 1, 0)] + th[j])) - np.cos(0.5 * (th[j] + th[min(j + 1, mesh_size[0] - 1)])))
 
         return np.sum(0.5 * deltaV * self.star.rho * self.star.Phi)
+
+
+class FSCF(Solver):
+    """ SCF-based method described in Fujisawa 2015 """
+
+    class VariablePolytrope(Polytrope):
+        """ This is a polytrope but K is now a function of r, theta """
+
+        def initialize_eos(self, parameters):
+            self.initialized = True
+            self.eps = parameters['eps']
+            self.a0 = parameters['a0']
+            self.b0 = parameters['b0']
+            self.m = parameters['m']
+            self.N = parameters['N']
+            self.A = parameters['A']
+            self.B = parameters['B']
+
+        def K(self, K0, r, theta):
+            return self.K0 * (1 + self.eps * (np.sin(theta)**2 / self.a0**2 + np.cos(theta)**2 / self.b0**2) * r**self.m)
+
+        def p_from_rho(self, rho, K0, r, theta):
+            if not self.initialized:
+                raise Exception("EOS not initialized")
+
+            if self.N == 0:
+                return rho
+            else:
+                return self.K(K0, r, theta) * rho ** (1 + 1 / self.N)
+
+        def rho_from_h(self, h, K0, r, theta):
+            if not self.initialized:
+                raise Exception("EOS not initialized")
+
+            # return (h / (self.K * (1 + self.N)))**self.N
+
+            rho = np.zeros_like(h)
+
+            rho[h >= 0] = (
+                h[h >= 0] / (self.K(K0, r, theta) * (1 + self.N)))**self.N
+
+            return rho
+
+        def rho_H_dash(self, h, K0, r, theta):
+            if not self.initialized:
+                raise Exception("EOS not initialized")
+
+            # return self.N * h**(self.N - 1) / (self.K * (1 + self.N))**self.N
+
+            rho = np.zeros_like(h)
+            rho[h < 0] = 0
+
+            rho[h >= 0] = self.N * \
+                h[h >= 0]**(self.N - 1) / \
+                (self.K(K0, r, theta) * (1 + self.N))**self.N
+
+            return rho
+
+    class VariableConstantRotation(JConstantRotation):
+
+        def omega2(self, j0, r):
+            return j0**2 / (1 + r**2 / self.d**2)**2
+
+    def initialize_solver(self, parameters):
+        self.star.eos = self.VariablePolytrope()
+        self.star.rotation_law = self.VariableConstantRotation()
+
+        self.q = self.star.eos.A[1]  # / self.star.eos.B[1]
+
+    def solve(self, max_steps=100, delta=1e-3):
+
+        r = self.star.r_coords
+        th = self.star.theta_coords
+
+        dr = r[1] - r[0]
+        dth = th[1] - th[0]
+
+        rho = self.star.rho
+        rho_new = np.zeros_like(rho)
+        p_new = np.zeros_like(rho)
+
+        nth, nr = self.star.mesh_size
+
+        lmax = 20
+
+        def fl(r_dash, r, l):
+            if r_dash < r:
+                return r_dash**(l + 2) / r**(l + 1)
+            else:
+                return r**l / r_dash**(l - 1)
+
+        def I1(l, i):
+
+            integrand = eval_legendre(
+                2 * l, np.cos(th)) * np.sin(th) * rho[:, i]
+
+            return simps(integrand, th)
+
+        def I2(l, i):
+            integrand = r**2 * \
+                np.array([fl(r[i], r_dash) * I1(l, k)
+                          for k, r_dash in enumerate(r)])
+
+            return simps(integrand, r)
+
+        Phi = np.zeros_like(rho)
+
+        for j in range(nth):
+            for i in range(nr):
+                for l in range(lmax):
+                    Phi[j, i] -= eval_legendre(2 * l, np.cos(th[j])) * I2(l, i)
+
+        # now find j0, K0
+
+        # start by looking at the rotational axis, j=0
+        rho_c = 1
+        p_c = self.star.eos.p_from_rho(rho_c)
+
+        def shoot_me(K0):
+
+            rho_new[:, :] = 0
+            p_new[:, :] = 0
+
+            def root_find_me(rho, rho_m, p_m, r_i, delta_phi):
+                p = self.star.eos.p_from_rho(rho, K0, r_i, 0)
+
+                return 2 * (p - p_m) / delta_phi - (rho + rho_m)
+
+            # find centre values
+            # TODO: what on earth is delta phi supposed to be here????
+            rho_new[0, 0] = brentq(root_find_me, 0, rho_c, args=(
+                rho_c, p_c, 0, Phi[0, 2] - Phi[0, 1]))
+            p_new[0, 0] = self.star.eos.p_from_rho(rho_new[0, 0], K0, 0, 0)
+
+            r_pol = 0
+
+            for i in range(1, nr):
+                if (rho[0, i - 1] <= 0):
+                    r_pol = r[i - 1]
+                    break
+
+                rho_new[0, i] = brentq(root_find_me, 0, rho_new[0, i - 1], args=(
+                    rho_new[0, i - 1], p_new[0, i - 1], r[i], Phi[0, i] - Phi[0, i - 1]))
+
+                p_new[0, 0] = self.star.eos.p_from_rho(
+                    rho_new[0, i], K0, r[i], 0)
+
+            return r_pol - self.q
+
+        K0 = brentq(shoot_me, 0, 1)
+
+        
+
+    def calc_mass(self):
+        pass
+
+    def calc_gravitational_energy(self):
+        pass
 
 
 class SCF3(Solver):

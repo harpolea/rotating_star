@@ -1,9 +1,14 @@
 import numpy as np
 from matplotlib import pyplot as plt
+from matplotlib.lines import Line2D
+from scipy.ndimage import zoom
 
 import eos
-from solvers import SCF, Newton
+from solvers import SCF, Newton, FSCF
 from rotation_laws import RigidRotation, VConstantRotation, JConstantRotation
+
+plt.rcParams.update({'font.size': 20, 'font.family': 'serif',
+                     'mathtext.fontset': 'dejavuserif'})
 
 
 class Star(object):
@@ -25,7 +30,7 @@ class Star(object):
         except KeyError:
             raise KeyError(f"EoS must be one of: {eoses.keys()}")
 
-        solvers = {"SCF": SCF, "Newton": Newton}
+        solvers = {"SCF": SCF, "Newton": Newton, "FSCF": FSCF}
         try:
             self.solver = solvers[solver](self)
         except KeyError:
@@ -56,26 +61,14 @@ class Star(object):
             self.Psi[:, :, :] = -0.5 * self.r_coords[np.newaxis, np.newaxis, :]**2 * \
                 (1 - self.mu_coords[np.newaxis, :, np.newaxis]**2)
         else:
-            self.mu_coords = np.array(
-                range(self.mesh_size[0])) / (self.mesh_size[0] - 1)
 
-            if solver == "Newton":
-                self.r_coords = 2*np.array(
-                    range(self.mesh_size[1])) / (self.mesh_size[1] - 2)
-                self.theta_coords = 0.5 * np.pi * \
-                    np.array(range(self.mesh_size[0])
-                             ) / (self.mesh_size[0] - 1)
-                self.omegabar = np.zeros(self.mesh_size)
-                self.omegabar[:, :] = self.r_coords[np.newaxis, :] * \
-                    np.sin(self.theta_coords[:, np.newaxis])
-            else:
+            self.theta_coords = np.linspace(0, np.pi/2, self.mesh_size[0], endpoint=True)
 
-                self.r_coords = np.array(
-                    range(1, self.mesh_size[1] + 1)) / (self.mesh_size[1] - 1)
-                self.Psi = np.zeros(self.mesh_size)
-                self.Psi[:, :] = -0.5 * self.r_coords[np.newaxis, :]**2 * \
-                    (1 - self.mu_coords[:, np.newaxis]**2)
-                self.omegabar = np.sqrt(-2 * self.Psi)
+            self.r_coords = np.linspace(0, 2, self.mesh_size[1], endpoint=True)
+
+            self.omegabar = np.zeros(self.mesh_size)
+            self.omegabar[:, :] = self.r_coords[np.newaxis, :] * \
+                np.sin(self.theta_coords[:, np.newaxis])
 
         self.rmax = self.r_coords[-1]
 
@@ -132,10 +125,10 @@ class Star(object):
         # axes[0].text(rB, 1.1 * np.max(self.rho), r"$r_B$")
 
         if rA == rB:
-            axes[0].text(rA, 1.1 * self.rho[0,0], r"$r_{A,B}$")
+            axes[0].text(rA, 1.1 * self.rho[0, 0], r"$r_{A,B}$")
         else:
-            axes[0].text(rA, 1.1 * self.rho[0,0], r"$r_A$")
-            axes[0].text(rB, 1.1 * self.rho[0,0], r"$r_B$")
+            axes[0].text(rA, 1.1 * self.rho[0, 0], r"$r_A$")
+            axes[0].text(rB, 1.1 * self.rho[0, 0], r"$r_B$")
 
         if self.dim == 3:
             axes[0].plot(self.r_coords, self.rho[0, 0, :])
@@ -162,9 +155,10 @@ class Star(object):
         r_lim = max(self.eos.A[1], self.eos.B[1])
 
         axes[1].set_ylabel(r'$\Phi$')
-        axes[1].set_ylim([np.min(self.Phi[:,:r_lim]), 1.05 * np.max(self.Phi[:,:r_lim])])
+        axes[1].set_ylim([np.min(self.Phi[:, :r_lim]),
+                          1.05 * np.max(self.Phi[:, :r_lim])])
         axes[2].set_ylabel(r'$H$')
-        axes[2].set_ylim([0, 1.05 * np.max(self.H[:,:r_lim])])
+        axes[2].set_ylim([0, 1.05 * np.max(self.H[:, :r_lim])])
 
         axes[2].set_xlabel(r'$r$')
 
@@ -172,5 +166,57 @@ class Star(object):
         axes[2].set_xlim([0, 1.05])
 
         axes[2].legend()
+
+        plt.show()
+
+    def plot_isosurfaces(self, nlevels=10):
+        """ Plot surfaces of equal density/pressure/potential """
+
+        fig, ax = plt.subplots(figsize=(8, 8))
+
+        p = self.eos.p_from_rho(self.rho)
+
+        fields = [self.rho, p, self.Phi]
+        labels = [r"$\rho$", r"$p$", r"$\Phi$", 'surface']
+        linestyles = ['-', ':', '--']
+
+        Y = self.r_coords[np.newaxis, :] * \
+            np.sin(self.theta_coords[:, np.newaxis])
+        X = self.r_coords[np.newaxis, :] * \
+            np.cos(self.theta_coords[:, np.newaxis])
+
+        # first find out where the surface of the star is
+        mask = ((self.rho >= 0) & (X**2 + Y**2 <= 1))
+
+        cmap = plt.cm.tab10
+
+        custom_lines = []
+        for i, f in enumerate(fields):
+            colour = cmap(i)
+            iso_values = np.linspace(np.min(f[mask]), np.max(
+                f[mask]), num=nlevels, endpoint=True)
+
+            f_masked = np.zeros_like(f)
+            f_masked[:, :] = f[:, :]
+            f_masked[~mask] = np.ma.masked
+            ax.contour(X, Y, f, colors=[
+                       colour], levels=iso_values, linestyles=linestyles[i], linewidths=2, extend='both')
+
+            custom_lines.append(
+                Line2D([0], [0], color=colour, linestyle=linestyles[i], linewidth=2))
+
+        # smooth rho to find smooth surface
+        factor = 10
+        ax.contour(zoom(X, factor), zoom(Y, factor), zoom(
+            self.rho, factor), colors='k', levels=1e-3, linewidths=3)
+        custom_lines.append(Line2D([0], [0], color='k', linewidth=3))
+
+        ax.legend(custom_lines, labels)
+
+        ax.set_xlim([0, self.r_coords[max(self.eos.A[1], self.eos.B[1])]])
+        ax.set_ylim([0, self.r_coords[max(self.eos.A[1], self.eos.B[1])]])
+
+        ax.set_xlabel(r"$x$")
+        ax.set_ylabel(r"$y$")
 
         plt.show()
