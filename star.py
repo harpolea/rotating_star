@@ -157,7 +157,7 @@ class Star(object):
                          marker='o', label=r'$\mu = 1$')
 
         axes[0].set_ylabel(r'$\rho$')
-        axes[0].set_ylim([0, 1.05])
+        # axes[0].set_ylim([-0.05, 1.05])
 
         r_lim = max(self.eos.A[1], self.eos.B[1])
 
