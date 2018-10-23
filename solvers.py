@@ -145,9 +145,8 @@ class SCF(Solver):
 
         def Q1(j):
             return np.sum((mu[2::2] - mu[:-2:2]) *
-                          (star.rho[:-2:2, j] +
-                           4 * star.rho[1:-1:2, j] +
-                           star.rho[2::2, j]))
+                          (star.rho[:-2:2, j] + 4 * star.rho[1:-1:2, j] +
+                           star.rho[2::2, j])) / 6
 
         mass = 0
 
@@ -170,7 +169,7 @@ class SCF(Solver):
         def S1(j):
             return np.sum((mu[2::2] - mu[:-2:2]) * (star.rho[:-2:2, j] * star.Phi[:-2:2, j] +
                                                     4 * star.rho[1:-1:2, j] * star.Phi[1:-1:2, j] +
-                                                    star.rho[2::2, j] * star.Phi[2::2, j]))
+                                                    star.rho[2::2, j] * star.Phi[2::2, j])) / 6
 
         W = 0
 
@@ -375,11 +374,7 @@ class Newton(Solver):
 
         M[:, A_idx] += gA.flatten()
         M[:, B_idx] += gB.flatten()
-
-        # for j in range(mesh_size[0]):
-        #     ix = j * mesh_size[1]
-
-        M[:, 0] += g0.flatten() #/ mesh_size[0]
+        M[:, 0] += g0.flatten()
 
         Phi = np.linalg.solve(M, R).reshape(mesh_size)
 
@@ -397,7 +392,7 @@ class Newton(Solver):
 
         H = self.star.eos.h_from_rho(rho)
 
-        Phi /= rho[0,0]**(1/self.star.eos.N)
+        # Phi /= rho[0,0]**(1/self.star.eos.N)
 
         # rho = self.star.eos.rho_from_h(H) \
         #     / self.rho0 * (H0 / (C - Phi0 - Psi0) * (C - Phi - Psi))
@@ -406,18 +401,21 @@ class Newton(Solver):
 
         Psi = C_Psi * Chi
 
-        C = 0.5 * (Phi[A] + Phi[B] + Psi[A] + Psi[B])
+        # C = 0.5 * (Phi[A] + Phi[B] + Psi[A] + Psi[B])
         # C = (Phi[A] + Psi[A])
 
         # print(f"rho = {rho[0,:]}")
 
         idx = max(A[1], B[1])
 
-        H_err = np.max(np.abs(H[:,:idx] - self.star.H[:,:idx])) / np.max(np.abs(H[:,:idx]))
+        H_err = np.max(
+            np.abs(H[:, :idx] - self.star.H[:, :idx])) / np.max(np.abs(H[:, :idx]))
 
-        Phi_err = np.max(np.abs(Phi[:,:idx] - self.star.Phi[:,:idx])) / np.max(np.abs(Phi[:,:idx]))
+        Phi_err = np.max(
+            np.abs(Phi[:, :idx] - self.star.Phi[:, :idx])) / np.max(np.abs(Phi[:, :idx]))
 
-        rho_err = np.max(np.abs(rho[:,:idx] - self.star.rho[:,:idx])) / np.max(np.abs(rho[:,:idx]))
+        rho_err = np.max(
+            np.abs(rho[:, :idx] - self.star.rho[:, :idx])) / np.max(np.abs(rho[:, :idx]))
 
         C_err = np.abs(C - self.star.C) / np.abs(C)
 
@@ -431,19 +429,17 @@ class Newton(Solver):
         print(
             f"\tErrors: H_err = {H_err}, C_err = {C_err}, rho_err = {rho_err}")
 
-        return C_err, C_err
+        return H_err, C_err, rho_err
 
     def solve(self, max_steps=100, delta=1e-3):
         if not self.initialized:
             raise Exception("solver not initialized")
 
-        delta = 1e-4
-
         for i in range(max_steps):
             print(f"Step {i}")
-            H_err, C_err = self.step()
+            H_err, C_err, rho_err = self.step()
 
-            if H_err < delta and C_err < delta:
+            if C_err < delta or (H_err < delta and rho_err < delta):
                 print("Solution found!")
                 break
 
@@ -454,15 +450,35 @@ class Newton(Solver):
         if not self.initialized:
             raise Exception("solver not initialized")
 
-        raise NotImplementedError(
-            "calc_mass not implemented for Newton solver")
+        mesh_size = self.star.mesh_size
+        r = self.star.r_coords
+        th = self.star.theta_coords
+
+        deltaV = np.zeros(mesh_size)
+
+        for j in range(mesh_size[0]):
+            for i in range(mesh_size[1]):
+                deltaV[j, i] = np.pi / 6 * ((r[i] + r[min(i + 1, mesh_size[1] - 1)])**3 - (r[max(i - 1, 0)] + r[i])**3) * (
+                    np.cos(0.5 * (th[max(j - 1, 0)] + th[j])) - np.cos(0.5 * (th[j] + th[min(j + 1, mesh_size[0] - 1)])))
+
+        return np.sum(self.star.rho * deltaV)
 
     def calc_gravitational_energy(self):
         if not self.initialized:
             raise Exception("solver not initialized")
 
-        raise NotImplementedError(
-            "calc_gravitational_energy not implemented for Newton solver")
+        mesh_size = self.star.mesh_size
+        r = self.star.r_coords
+        th = self.star.theta_coords
+
+        deltaV = np.zeros(mesh_size)
+
+        for j in range(mesh_size[0]):
+            for i in range(mesh_size[1]):
+                deltaV[j, i] = np.pi / 6 * ((r[i] + r[min(i + 1, mesh_size[1] - 1)])**3 - (r[max(i - 1, 0)] + r[i])**3) * (
+                    np.cos(0.5 * (th[max(j - 1, 0)] + th[j])) - np.cos(0.5 * (th[j] + th[min(j + 1, mesh_size[0] - 1)])))
+
+        return np.sum(0.5 * deltaV * self.star.rho * self.star.Phi)
 
 
 class SCF3(Solver):
