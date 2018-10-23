@@ -131,8 +131,11 @@ class Star(object):
         # axes[0].text(rA, 1.1 * np.max(self.rho), r"$r_A$")
         # axes[0].text(rB, 1.1 * np.max(self.rho), r"$r_B$")
 
-        axes[0].text(rA, 1.1 * self.rho[0,0], r"$r_A$")
-        axes[0].text(rB, 1.1 * self.rho[0,0], r"$r_B$")
+        if rA == rB:
+            axes[0].text(rA, 1.1 * self.rho[0,0], r"$r_{A,B}$")
+        else:
+            axes[0].text(rA, 1.1 * self.rho[0,0], r"$r_A$")
+            axes[0].text(rB, 1.1 * self.rho[0,0], r"$r_B$")
 
         if self.dim == 3:
             axes[0].plot(self.r_coords, self.rho[0, 0, :])
@@ -156,8 +159,12 @@ class Star(object):
         axes[0].set_ylabel(r'$\rho$')
         axes[0].set_ylim([0, 1.05])
 
+        r_lim = max(self.eos.A[1], self.eos.B[1])
+
         axes[1].set_ylabel(r'$\Phi$')
+        axes[1].set_ylim([np.min(self.Phi[:,:r_lim]), 1.05 * np.max(self.Phi[:,:r_lim])])
         axes[2].set_ylabel(r'$H$')
+        axes[2].set_ylim([0, 1.05 * np.max(self.H[:,:r_lim])])
 
         axes[2].set_xlabel(r'$r$')
 

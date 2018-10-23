@@ -304,7 +304,6 @@ class Newton(Solver):
         for j in range(self.star.mesh_size[0]):
             for i in range(1, self.star.mesh_size[1] - 1):
                 ix = j * self.star.mesh_size[1] + i
-                # if r[i] < 1:
                 M[ix, ix - 1] += 1 / (dr**2 * r[i]**2) * \
                     0.5 * (r[i]**2 + r[i - 1]**2)
                 M[ix, ix] -= 1 / (dr**2 * r[i]**2) * 0.5 * \
@@ -346,16 +345,19 @@ class Newton(Solver):
             # use first order accurate backwards second derivative
 
             ix = j * self.star.mesh_size[1] + self.star.mesh_size[1] - 1
-            M[ix, ix - 2] += 1 / (r[i]**4 * dr**2)
-            M[ix, ix - 1] -= 2 / (r[i]**4 * dr**2)
-            M[ix, ix] += 1 / (r[i]**4 * dr**2)
+            M[ix, ix - 2] += 1 / (r[i-1]**2 * dr**2)* \
+                0.5 * (r[i-2]**2 + r[i - 1]**2)
+            M[ix, ix - 1] -= 1 / (r[i-1]**2 * dr**2)* 0.5 * \
+                (2 * r[i-1]**2 + r[i]**2 + r[i -2]**2)
+            M[ix, ix] += 1 / (r[i-1]**2 * dr**2) * \
+                0.5 * (r[i]**2 + r[i - 1]**2)
 
         for i in range(1, self.star.mesh_size[1]):
             # theta = 0
             ix = i
             jp = self.star.mesh_size[1] + i
-            M[ix, ix] -= 1 / (r[i]**2 * dth)
-            M[ix, jp] += 1 / (r[i]**2 * dth)
+            M[ix, ix] -= 4 / (r[i]**2 * dth**2)
+            M[ix, jp] += 4 / (r[i]**2 * dth**2)
 
             # theta = pi/2
             ix = (self.star.mesh_size[0] - 1) * self.star.mesh_size[1] + i
@@ -381,13 +383,13 @@ class Newton(Solver):
 
         Phi = np.linalg.solve(M, R).reshape(self.star.mesh_size)
 
-        # print(f"Phi = {Phi[0,:]}")
+        # print(f"Phi = {Phi[:,0]}")
 
         H = self.H_from_Phi(Phi)
 
         rho = self.star.eos.rho_from_h(H)
-        # rho[rho < 0] = 0
         rho /= np.max(rho[0,0])
+        # rho[rho < 0] = 0
 
         H = self.star.eos.h_from_rho(rho)
 
@@ -426,8 +428,6 @@ class Newton(Solver):
     def solve(self, max_steps=100, delta=1e-3):
         if not self.initialized:
             raise Exception("solver not initialized")
-
-        delta = 1e-4
 
         for i in range(max_steps):
             print(f"Step {i}")
