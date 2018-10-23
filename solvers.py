@@ -345,12 +345,6 @@ class Newton(Solver):
             M[ix, ix] += 1 / (r[i]**2 * dr**2) * \
                 0.5 * (r[i]**2 + r[i - 1]**2)
 
-            #
-            # M[ix, ix - 1] += 2 / (r[i]**2 * dr**2)* \
-            #     0.5 * (r[i]**2 + r[i - 1]**2)
-            # M[ix, ix] -= 2 / (r[i]**2 * dr**2)* \
-            #     0.5 * (r[i]**2 + r[i - 1]**2)
-
         for i in range(1, mesh_size[1]):
             # theta = 0
             ix = i
@@ -382,7 +376,7 @@ class Newton(Solver):
         # err = np.matmul(M, Phi.flatten()) - R
         # print(f"err = {err[100:105]}")
 
-        # print(f"Phi = {Phi[0,:]}")
+        # print(f"Phi = {Phi[:,0]}")
 
         H = self.H_from_Phi(Phi)
 
