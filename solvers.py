@@ -563,7 +563,9 @@ class FSCF(Solver):
         r2d[:, :] = self.star.r_coords[np.newaxis, :]
         th2d[:, :] = self.star.theta_coords[:, np.newaxis]
 
-        self.star.p = self.star.eos.p_from_rho(self.star.rho, 1, r2d, th2d)
+        self.star.K0 = 1e-3
+        self.star.p = self.star.eos.p_from_rho(
+            self.star.rho, self.star.K0, r2d, th2d)
 
     def step(self):
 
@@ -586,40 +588,39 @@ class FSCF(Solver):
 
         def fl(r_dash, r, l):
             if r_dash < r:
-                return r_dash**(l + 2) / r**(l + 1)
+                return r_dash**(2 * l) / r**(2 * l + 1)
             else:
-                return r**l / r_dash**(l - 1)
+                return r**(2 * l) / r_dash**(2 * l + 1)
 
         def I1(l, i):
-
             integrand = eval_legendre(
                 2 * l, np.cos(th)) * np.sin(th) * rho_old[:, i]
 
             return simps(integrand, th)
 
         def I2(l, i):
-            integrand = r**2 * \
-                np.array([fl(r[i], r_dash, l) * I1(l, k)
-                          for k, r_dash in enumerate(r)])
+            if r[i] == 0:
+                return 0
+            else:
+                integrand = r**2 * \
+                    np.array([fl(r[i], r_dash, l) * I1(l, k)
+                              for k, r_dash in enumerate(r)])
 
-            return simps(integrand, r)
+                return simps(integrand, r)
 
         Phi = np.zeros_like(rho)
 
         for j in range(nth):
-            for i in range(1, nr):
+            for i in range(nr):
                 for l in range(lmax):
-                    # print(f"I2 = {I2(l,i)}")
                     Phi[j, i] -= eval_legendre(2 * l, np.cos(th[j])) * I2(l, i)
-
-        # I'm not sure what to do with Phi(r=0), so I'm going to copy that over from its neighbour?
-        Phi[:, 0] = Phi[:, 1]
+        Phi[:,0] = Phi[:,1]
 
         # now find j0, K0
 
         # start by looking at the rotational axis, j=0
         rho_c = 1
-        p_c = self.star.eos.p_from_rho(rho_c, 1e-3, 0, 0)
+        p_c = self.star.eos.p_from_rho(rho_c, self.star.K0, 0, 0)
 
         def shoot_me(K0):
 
@@ -645,9 +646,6 @@ class FSCF(Solver):
             r_pol = 0
 
             for i in range(1, nr):
-                if (rho[0, i - 1] <= 0):
-                    r_pol = r[i - 1]
-                    break
 
                 # print(f"root_find_me(0) = {root_find_me(0, rho[0, i - 1], p[0, i - 1], i)}, root_find_me(rho[0, i - 1])  = {root_find_me(rho[0, i - 1], rho[0, i - 1], p[0, i - 1], i)}")
 
@@ -658,23 +656,27 @@ class FSCF(Solver):
                 rho[0, i] = brentq(root_find_me, 0, rho[0, i - 1] * 1.05, args=(
                     rho[0, i - 1], p[0, i - 1], i))
 
-                p[0, 0] = self.star.eos.p_from_rho(
-                    rho[0, i], K0, r[i], 0)
+                if (rho[0, i] <= 0 or r[i] >= 1):
+                    r_pol = r[i]
+                    break
+
+                p[0, i] = self.star.eos.p_from_rho(rho[0, i], K0, r[i], 0)
 
             return r_pol - self.q
 
-        K_min = 1e-3
+        K_min = 1e-5
         K_max = 1
 
         if shoot_me(K_min) * shoot_me(K_max) > 0:
-            K_max *= 100
+            K_max *= 1e6
+            K_min *= 1e-2
 
         print(f"self.q = {self.q}")
 
         print(
-            f"shoot_me(1e-3) = {shoot_me(K_min)}, shoot_me(1) = {shoot_me(1)}, shoot_me(1e6) = {shoot_me(1e6)}")
+            f"shoot_me({K_min}) = {shoot_me(K_min)}, shoot_me(0) = {shoot_me(0)}, shoot_me({K_max}) = {shoot_me(K_max)}")
 
-        K0 = brentq(shoot_me, K_min, 1)
+        K0 = brentq(shoot_me, K_min, K_max)
 
         print(f"Found K0 = {K0}!")
 
@@ -703,9 +705,6 @@ class FSCF(Solver):
             r_pol = 0
 
             for i in range(1, nr):
-                if (rho[-1, i - 1] <= 0):
-                    r_pol = r[i - 1]
-                    break
 
                 if root_find_me(0, rho[-1, i - 1], p[-1, i - 1], i) * root_find_me(rho[-1, i - 1] * 1.05, rho[-1, i - 1], p[-1, i - 1], i) > 0:
                     r_pol = r[i - 1]
@@ -714,7 +713,11 @@ class FSCF(Solver):
                 rho[-1, i] = brentq(root_find_me, 0, rho[-1, i - 1] * 1.05,
                                     args=(rho[-1, i - 1], p[-1, i - 1], i))
 
-                p[-1, 0] = self.star.eos.p_from_rho(
+                if (rho[-1, i] <= 0 or r[i] >= 1):
+                    r_pol = r[i]
+                    break
+
+                p[-1, i] = self.star.eos.p_from_rho(
                     rho[-1, i], K0, r[i], np.pi / 2)
 
             return r_pol - self.q
@@ -772,7 +775,7 @@ class FSCF(Solver):
             p_guess = self.star.eos.p_from_rho(rho_guess, K0, r[i], th[j])
 
             # print(
-                # f"rho_guess = {rho_guess}, p_guess = {p_guess}, p_m = {p[j, i - 1]}")
+            # f"rho_guess = {rho_guess}, p_guess = {p_guess}, p_m = {p[j, i - 1]}")
 
             return (p_guess - p[j, i - 1]) - \
                 (0.5 / dr * (rho_guess + rho[j, i - 1]) * (Phi[j, i] - Phi[j, i - 1]) +
@@ -784,14 +787,14 @@ class FSCF(Solver):
                 # print(
                 #     f"this_is_not_explicit(0) = {this_is_not_explicit(0,i,j)}, this_is_not_explicit(r_i-1) = {this_is_not_explicit(rho[j,i-1]*1.05,i,j)}")
 
-                if this_is_not_explicit(0,i,j) * this_is_not_explicit(rho[j,i-1]*1.05,i,j) > 0:
+                if this_is_not_explicit(0, i, j) * this_is_not_explicit(rho[j, i - 1] * 1.05, i, j) > 0:
                     # reached stellar surface so skip the rest
-                    rho[j,i:] = 0
-                    p[j,i:] = 0
+                    rho[j, i:] = 0
+                    p[j, i:] = 0
                     break
 
                 rho[j, i] = brentq(this_is_not_explicit, 0,
-                                   rho[j, i - 1]*1.05, args=(i, j))
+                                   rho[j, i - 1] * 1.05, args=(i, j))
                 p[j, i] = self.star.eos.p_from_rho(rho[j, i], K0, r[i], th[j])
 
                 if rho[j, i] <= 0:
@@ -804,11 +807,12 @@ class FSCF(Solver):
 
         print(f"Errors: rho_err = {rho_err}")
 
-        print(f"rho = {rho}")
-        print(f"Phi = {Phi}")
+        # print(f"rho = {rho}")
+        # print(f"Phi = {Phi}")
 
         self.star.rho = rho
         self.star.p = p
+        self.star.K0 = K0
 
         return rho_err
 
