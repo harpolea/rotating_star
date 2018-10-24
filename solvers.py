@@ -1,7 +1,7 @@
 from abc import ABCMeta, abstractmethod
 import numpy as np
 from scipy.special import lpmv, factorial, eval_legendre
-from scipy.integrate import simps
+from scipy.integrate import simps, odeint
 from scipy.optimize import brentq
 
 from eos import Polytrope
@@ -27,6 +27,200 @@ class Solver(metaclass=ABCMeta):
         pass
 
     @abstractmethod
+    def calc_gravitational_energy(self):
+        pass
+
+
+class Roxburgh(Solver):
+
+    def initialize_solver(self, parameters):
+        self.theta_m = 0
+        self.Ro = 0.9
+
+        self.Rs = self.star.r_coords[-1]
+
+        # inverted coordinate system is driving me mad so I am .T'ing them all.
+        self.star.rho = self.star.rho.T
+        self.star.Phi = self.star.Phi.T
+        self.star.Omega2 = parameters['Omega']**2
+
+        self.rhom = self.star.rho[:, 0]
+
+    def step(self):
+        # solve Poisson for Phi given rho
+        Phi = self.Phi_given_rho(self.star.rho)
+
+        # solve for rho given Phi subject to rho(r,0) = rhom(r)
+        rho = self.rho_given_Phi
+
+        # test conversion
+        rho_err = np.max(np.abs(rho - self.star.rho)) / np.max(rho)
+
+        print(f"Error: rho_err = {rho_err}")
+
+        # print(f"rho = {rho}")
+        # print(f"Phi = {Phi}")
+
+        self.star.rho = rho
+        self.star.Phi = Phi
+
+        return rho_err
+
+    def Phi_given_rho(self, rho):
+        r = self.star.r_coords
+        th = self.star.theta_coords
+        nth = len(th)
+        nr = len(r)
+
+        nk = min(20, nth)
+
+        Phi = np.zeros_like(self.star.Phi)
+
+        W = np.array([[eval_legendre(2 * k, np.cos(th[n]))
+                       for n in range(nk)] for k in range(nk)])
+
+        ck = np.zeros((nr, nk))
+        fk = np.zeros((nr, nk))
+
+        for i in range(nr):
+            ck[i, :] = np.linalg.matmul(np.linalg.inv(W), rho[i, :nk])
+
+        for k in range(nth):
+            # solve equation 12 using shooting
+
+            def dfdr(x, _r):
+                y = np.zeros_like(x)
+                y[:, 0] = 4 * np.pi * self.star.G * ck[:, k] - 2 / \
+                    _r * x[:, 0] + 2 * k * (k + 1) * x[:, 0] / _r**2
+                y[:, 1] = x[:, 0]
+
+                return y
+
+            def shoot_me(dfdr0):
+                _fk = odeint(dfdr, [dfdr0, 0], r)
+
+                # calculate boundary condition at r=Rs
+                return (2 * k + 1) * _fk[-1, 1] + r[-1] * _fk[-1, 0]
+
+            dfdr0 = brentq(shoot_me, -1, 1)
+
+            fk[:, k] = odeint(dfdr, [dfdr0, 0], r)[:, 1]
+
+        # now given fk we can find Phi
+        for i in range(nr):
+            for j in range(nth):
+                Phi[i, j] = np.sum(
+                    [fk[i, k] * eval_legendre(2 * k, np.cos(th[j])) for k in range(nk)])
+
+        return Phi
+
+        # for i in range(nr):
+        #
+        #     lk = np.zeros(nth)
+        #     for k in range(nth):
+        #
+        #         I = ck[:, k] * r**(2*k+2)
+        #
+        #         lk[k] = 4 * np.pi * self.star.G / ((4 * k + 1) * self.Rs**(4*k+1)) * simps(I, r)
+        #
+        #         inner_I = np.array([simps(c[:j, k] * r[:j]**(2*k+2)) for k in range(nr)])
+        #
+        #         I2 = 4 * np.pi * self.star.G / r[i:]**(4*k+2)
+
+    def rho_given_Phi(self, Phi):
+        r = self.star.r_coords
+        th = self.star.theta_coords
+        dr = r[1] - r[0]
+        dth = th[1] - th[0]
+        nth = len(th)
+        nr = len(r)
+
+        rho = np.zeros_like(Phi)
+
+        dPhidr = np.zeros_like(Phi)
+        dPhidth = np.zeros_like(Phi)
+
+        dPhidr[1:-1, :] = (Phi[2:, :] - Phi[:-2, :]) / (2 * dr)
+        dPhidth[:, 1:-1] = (Phi[:, 2:] - Phi[:, :-2]) / (2 * dth)
+
+        # do boundaries by copying. At r=0, we want the derivative of the potential to be 0, so we'll leave that.
+        dPhidr[-1, :] = dPhidr[-2, :]
+
+        dPhidth[:, 0] = dPhidth[:, 1]
+        dPhidth[:, -1] = dPhidth[:, -2]
+
+        gm = np.zeros_like(Phi)
+
+        for i in range(nr):
+            for j in range(nth):
+
+                I = -1 / r[i] * (dPhidth[i, :j] - self.star.Omega2 * r[i]**2 * np.sin(th[:j]) * np.cos(
+                    th[:j])) / (dPhidr[i, :j] - self.star.Omega2 * r[i] * np.sin(th[:j]**2))
+
+                log_gm = simps(I, th[:j])
+
+                gm[i, j] = np.exp(log_gm)
+
+            for j in range(nth):
+
+                dgdth = -1 / r[i] * (dPhidth[i, :j] - self.star.Omega2 * r[i]**2 * np.sin(
+                    th[:j]) * np.cos(th[:j])) / (dPhidr[i, :j] - self.star.Omega2 * r[i] * np.sin(th[:j]**2))
+
+                I = -r[i] * self.star.Omega2 * np.cos(th[:j]) / (
+                    dPhidr[i, :j] - self.star.Omega2 * r[i] * np.sin(th[:j])**2) * 1 / dgdth
+
+                log_rho = simps(I, gm[i, :j]) + np.log(self.rhom[i])
+
+                rho[i, j] = np.exp(log_rho)
+
+        return rho
+
+    def P_given_rho_Phi(self, rho, Phi):
+        r = self.star.r_coords
+        th = self.star.theta_coords
+        dr = r[1] - r[0]
+        dth = th[1] - th[0]
+        nth = len(th)
+        nr = len(r)
+
+        dPhidr = np.zeros_like(Phi)
+
+        dPhidr[1:-1, :] = (Phi[2:, :] - Phi[:-2, :]) / (2 * dr)
+        dPhidr[-1, :] = dPhidr[-2, :]
+
+        P = np.zeros((nr, nth))
+
+        # NOTE: used the fact that theta_m = 0
+
+        Ro_index = self.star.eos.A[1]
+
+        for i in range(Ro_index):
+            P[i, 0] = np.simps(rho[i:Ro_index, 0] *
+                               dPhidr[i:Ro_index, 0], r[i:Ro_index])
+
+        # now we have to do something clever and interpolate these along the characteristics. eurgh.
+
+    def solve(self, max_steps=100, delta=1e-3):
+
+        for i in range(max_steps):
+            print(f"Step {i}")
+            rho_err = self.step()
+
+            if rho_err <= delta:
+                print("Solution found!")
+                break
+
+        self.star.p = self.P_given_rho_Phi(self.star.rho, self.star.Phi)
+
+        # untranspose
+
+        self.star.rho = self.star.rho.T
+        self.star.Phi = self.star.Phi.T
+        self.star.p = self.star.p.T
+
+    def calc_mass(self):
+        pass
+
     def calc_gravitational_energy(self):
         pass
 
@@ -614,7 +808,7 @@ class FSCF(Solver):
             for i in range(nr):
                 for l in range(lmax):
                     Phi[j, i] -= eval_legendre(2 * l, np.cos(th[j])) * I2(l, i)
-        Phi[:,0] = Phi[:,1]
+        Phi[:, 0] = Phi[:, 1]
 
         # now find j0, K0
 
@@ -750,17 +944,17 @@ class FSCF(Solver):
                     # outside the star
                     continue
 
-                rhs = 0.25 / (dr * dth * rhom**2) * ((rho_old[j + 1, i] + rho_old[j + 1, i - 1] - rho_old[i, j] - rho_old[j, i - 1]) *
-                                                     (p_old[j + 1, i] + p_old[j, i] - p_old[j + 1, i - 1] - p_old[j, i - 1]) -
-                                                     (p_old[j + 1, i] + p_old[j + 1, i - 1] - p_old[j, i] - p_old[j, i - 1]) *
-                                                     (rho_old[j + 1, i] + rho_old[j, i] - rho_old[j + 1, i - 1] - rho_old[j, i - 1]))
+                rhs = 0.25 / (dr * dth * rhom**2) * \
+                    ((rho_old[j + 1, i] + rho_old[j + 1, i - 1] - rho_old[i, j] - rho_old[j, i - 1]) *
+                     (p_old[j + 1, i] + p_old[j, i] - p_old[j + 1, i - 1] - p_old[j, i - 1]) -
+                     (p_old[j + 1, i] + p_old[j + 1, i - 1] - p_old[j, i] - p_old[j, i - 1]) *
+                     (rho_old[j + 1, i] + rho_old[j, i] - rho_old[j + 1, i - 1] - rho_old[j, i - 1]))
                 lhs = 0.5 * rm**2 * np.sin(thm) * np.cos(thm) / dr * \
                     (Omega2[j + 1, i] - Omega2[j, i - 1] - Omega2[j + 1, i - 1]) - \
                     0.5 * rm * np.sin(thm)**2 / dth * \
                     (Omega2[j + 1, i] + Omega2[j + 1, i - 1] - Omega2[j, i - 1])
 
-                coeff = 0.5 * rm**2 * \
-                    np.sin(thm) * np.cos(thm) / dr + \
+                coeff = 0.5 * rm**2 * np.sin(thm) * np.cos(thm) / dr + \
                     0.5 * rm * np.sin(thm)**2 / dth
 
                 Omega2[j, i] = (rhs - lhs) / coeff
@@ -777,9 +971,9 @@ class FSCF(Solver):
             # print(
             # f"rho_guess = {rho_guess}, p_guess = {p_guess}, p_m = {p[j, i - 1]}")
 
-            return (p_guess - p[j, i - 1]) - \
+            return (p_guess - p[j, i - 1]) / dr - \
                 (0.5 / dr * (rho_guess + rho[j, i - 1]) * (Phi[j, i] - Phi[j, i - 1]) +
-                 1 / 8 * (r[i] + r[i - 1]) * np.sin(th[j])**2 * (rho_guess + rho[j, i - 1]) *
+                 0.5**3 * (r[i] + r[i - 1]) * np.sin(th[j])**2 * (rho_guess + rho[j, i - 1]) *
                  (Omega2[j, i] + Omega2[j, i - 1]))
 
         for j in range(nth):
@@ -787,7 +981,7 @@ class FSCF(Solver):
                 # print(
                 #     f"this_is_not_explicit(0) = {this_is_not_explicit(0,i,j)}, this_is_not_explicit(r_i-1) = {this_is_not_explicit(rho[j,i-1]*1.05,i,j)}")
 
-                if this_is_not_explicit(0, i, j) * this_is_not_explicit(rho[j, i - 1] * 1.05, i, j) > 0:
+                if this_is_not_explicit(0, i, j) * this_is_not_explicit(rho[j, i - 1], i, j) > 0:
                     # reached stellar surface so skip the rest
                     rho[j, i:] = 0
                     p[j, i:] = 0
@@ -799,6 +993,8 @@ class FSCF(Solver):
 
                 if rho[j, i] <= 0:
                     # reached stellar surface so skip the rest
+                    rho[j, i:] = 0
+                    p[j, i:] = 0
                     break
 
         # check errors
