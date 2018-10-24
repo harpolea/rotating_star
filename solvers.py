@@ -499,8 +499,12 @@ class FSCF(Solver):
             self.A = parameters['A']
             self.B = parameters['B']
 
-        def K(self, K0, r, theta):
-            return self.K0 * (1 + self.eps * (np.sin(theta)**2 / self.a0**2 + np.cos(theta)**2 / self.b0**2) * r**self.m)
+        def K(self, K0, r, th):
+            # it has a really weird error if this line is not in there
+            if not hasattr(th, "__len__"):
+                a = float(th)
+
+            return K0 * (1 + self.eps * (np.sin(th)**2 / self.a0**2 + np.cos(th)**2 / self.b0**2) * r**self.m)
 
         def p_from_rho(self, rho, K0, r, theta):
             if not self.initialized:
@@ -548,9 +552,20 @@ class FSCF(Solver):
         self.star.eos = self.VariablePolytrope()
         self.star.rotation_law = self.VariableConstantRotation()
 
-        self.q = self.star.eos.A[1]  # / self.star.eos.B[1]
+        self.star.eos.initialize_eos(parameters)
+        self.star.rotation_law.initialize_law(parameters)
 
-    def solve(self, max_steps=100, delta=1e-3):
+        self.q = self.star.r_coords[self.star.eos.A[1]]  # / self.star.eos.B[1]
+
+        r2d = np.zeros(self.star.mesh_size)
+        th2d = np.zeros_like(r2d)
+
+        r2d[:, :] = self.star.r_coords[np.newaxis, :]
+        th2d[:, :] = self.star.theta_coords[:, np.newaxis]
+
+        self.star.p = self.star.eos.p_from_rho(self.star.rho, 1, r2d, th2d)
+
+    def step(self):
 
         r = self.star.r_coords
         th = self.star.theta_coords
@@ -558,11 +573,14 @@ class FSCF(Solver):
         dr = r[1] - r[0]
         dth = th[1] - th[0]
 
-        rho = self.star.rho
-        rho_new = np.zeros_like(rho)
-        p_new = np.zeros_like(rho)
-
         nth, nr = self.star.mesh_size
+
+        # rho = self.star.rho
+        rho = np.zeros((nth, nr))
+        p = np.zeros((nth, nr))
+
+        rho_old = self.star.rho
+        p_old = self.star.p
 
         lmax = 20
 
@@ -575,13 +593,13 @@ class FSCF(Solver):
         def I1(l, i):
 
             integrand = eval_legendre(
-                2 * l, np.cos(th)) * np.sin(th) * rho[:, i]
+                2 * l, np.cos(th)) * np.sin(th) * rho_old[:, i]
 
             return simps(integrand, th)
 
         def I2(l, i):
             integrand = r**2 * \
-                np.array([fl(r[i], r_dash) * I1(l, k)
+                np.array([fl(r[i], r_dash, l) * I1(l, k)
                           for k, r_dash in enumerate(r)])
 
             return simps(integrand, r)
@@ -589,31 +607,40 @@ class FSCF(Solver):
         Phi = np.zeros_like(rho)
 
         for j in range(nth):
-            for i in range(nr):
+            for i in range(1, nr):
                 for l in range(lmax):
+                    # print(f"I2 = {I2(l,i)}")
                     Phi[j, i] -= eval_legendre(2 * l, np.cos(th[j])) * I2(l, i)
+
+        # I'm not sure what to do with Phi(r=0), so I'm going to copy that over from its neighbour?
+        Phi[:, 0] = Phi[:, 1]
 
         # now find j0, K0
 
         # start by looking at the rotational axis, j=0
         rho_c = 1
-        p_c = self.star.eos.p_from_rho(rho_c)
+        p_c = self.star.eos.p_from_rho(rho_c, 1e-3, 0, 0)
 
         def shoot_me(K0):
 
-            rho_new[:, :] = 0
-            p_new[:, :] = 0
+            rho[:, :] = 0
+            p[:, :] = 0
 
-            def root_find_me(rho, rho_m, p_m, r_i, delta_phi):
-                p = self.star.eos.p_from_rho(rho, K0, r_i, 0)
+            p_c = self.star.eos.p_from_rho(rho_c, K0, 0, 0)
 
-                return 2 * (p - p_m) / delta_phi - (rho + rho_m)
+            def root_find_me(_rho, rho_m, p_m, i):
+                _p = self.star.eos.p_from_rho(_rho, K0, r[i], 0.0)
+
+                # print(f"_rho = {_rho}, _p = {_p}, rho_m = {rho_m}, p_m = {p_m}, deltaPhi = {Phi[0,i] - Phi[0,i-1]}")
+
+                return (_p - p_m) / dr - (Phi[0, i] - Phi[0, i - 1]) * (_rho + rho_m) / (2 * dr)
 
             # find centre values
             # TODO: what on earth is delta phi supposed to be here????
-            rho_new[0, 0] = brentq(root_find_me, 0, rho_c, args=(
-                rho_c, p_c, 0, Phi[0, 2] - Phi[0, 1]))
-            p_new[0, 0] = self.star.eos.p_from_rho(rho_new[0, 0], K0, 0, 0)
+            rho[:, :] = self.star.rho[:, :]
+            rho[:, 0] = rho_c
+            p[:, :] = self.star.p[:, :]
+            p[:, 0] = self.star.eos.p_from_rho(rho[0, 0], K0, 0, 0)
 
             r_pol = 0
 
@@ -622,17 +649,178 @@ class FSCF(Solver):
                     r_pol = r[i - 1]
                     break
 
-                rho_new[0, i] = brentq(root_find_me, 0, rho_new[0, i - 1], args=(
-                    rho_new[0, i - 1], p_new[0, i - 1], r[i], Phi[0, i] - Phi[0, i - 1]))
+                # print(f"root_find_me(0) = {root_find_me(0, rho[0, i - 1], p[0, i - 1], i)}, root_find_me(rho[0, i - 1])  = {root_find_me(rho[0, i - 1], rho[0, i - 1], p[0, i - 1], i)}")
 
-                p_new[0, 0] = self.star.eos.p_from_rho(
-                    rho_new[0, i], K0, r[i], 0)
+                if root_find_me(0, rho[0, i - 1], p[0, i - 1], i) * root_find_me(rho[0, i - 1] * 1.05, rho[0, i - 1], p[0, i - 1], i) > 0:
+                    r_pol = r[i]
+                    break
+
+                rho[0, i] = brentq(root_find_me, 0, rho[0, i - 1] * 1.05, args=(
+                    rho[0, i - 1], p[0, i - 1], i))
+
+                p[0, 0] = self.star.eos.p_from_rho(
+                    rho[0, i], K0, r[i], 0)
 
             return r_pol - self.q
 
-        K0 = brentq(shoot_me, 0, 1)
+        K_min = 1e-3
+        K_max = 1
 
-        
+        if shoot_me(K_min) * shoot_me(K_max) > 0:
+            K_max *= 100
+
+        print(f"self.q = {self.q}")
+
+        print(
+            f"shoot_me(1e-3) = {shoot_me(K_min)}, shoot_me(1) = {shoot_me(1)}, shoot_me(1e6) = {shoot_me(1e6)}")
+
+        K0 = brentq(shoot_me, K_min, 1)
+
+        print(f"Found K0 = {K0}!")
+
+        omega2 = self.star.rotation_law.omega2
+
+        p_c = self.star.eos.p_from_rho(rho_c, K0, 0, 0)
+
+        def shoot_j0(j0):
+
+            rho[:, :] = 0
+            p[:, :] = 0
+
+            def root_find_me(_rho, rho_m, p_m, i):
+                _p = self.star.eos.p_from_rho(_rho, K0, r[i], np.pi / 2)
+
+                return (_p - p_m) / dr - \
+                    0.5 / dr * (_rho + rho_m) * (Phi[-1, i] - Phi[-1, i - 1]) - \
+                    0.5**3 * (r[i] + r[i - 1]) * (_rho + rho_m) * \
+                    (omega2(j0, r[i]) + omega2(j0, r[i - 1]))
+
+            # find centre values
+
+            rho[:, 0] = rho_c
+            p[:, 0] = p_c
+
+            r_pol = 0
+
+            for i in range(1, nr):
+                if (rho[-1, i - 1] <= 0):
+                    r_pol = r[i - 1]
+                    break
+
+                if root_find_me(0, rho[-1, i - 1], p[-1, i - 1], i) * root_find_me(rho[-1, i - 1] * 1.05, rho[-1, i - 1], p[-1, i - 1], i) > 0:
+                    r_pol = r[i - 1]
+                    break
+
+                rho[-1, i] = brentq(root_find_me, 0, rho[-1, i - 1] * 1.05,
+                                    args=(rho[-1, i - 1], p[-1, i - 1], i))
+
+                p[-1, 0] = self.star.eos.p_from_rho(
+                    rho[-1, i], K0, r[i], np.pi / 2)
+
+            return r_pol - self.q
+
+        j0_min = 0
+        j0_max = 1
+
+        print(
+            f"shoot_j0(0) = {shoot_j0(0)}, shoot_j0(1e-2) = {shoot_j0(1e-2)}, shoot_j0(1) = {shoot_j0(1)}")
+
+        j0 = brentq(shoot_j0, 0, j0_max)
+
+        Omega2 = np.zeros_like(rho)
+
+        # first set the values of Omega2 on the equatorial plane
+
+        Omega2[-1, :] = omega2(j0, r)
+
+        # now we want to find the values of Omega2 elsewhere.
+        # we do this by iterating backwards from the equatorial plane.
+        for i in range(1, nr):
+            rm = 0.5 * (r[i] + r[i - 1])
+            for j in range(nth - 2, 0, -1):
+
+                thm = 0.5 * (th[j] + th[j - 1])
+                rhom = 0.5 * (rho_old[j, i - 1] + rho_old[j, i] +
+                              rho_old[j + 1, i - 1] + rho_old[j + 1, i])
+
+                if rhom == 0:
+                    # outside the star
+                    continue
+
+                rhs = 0.25 / (dr * dth * rhom**2) * ((rho_old[j + 1, i] + rho_old[j + 1, i - 1] - rho_old[i, j] - rho_old[j, i - 1]) *
+                                                     (p_old[j + 1, i] + p_old[j, i] - p_old[j + 1, i - 1] - p_old[j, i - 1]) -
+                                                     (p_old[j + 1, i] + p_old[j + 1, i - 1] - p_old[j, i] - p_old[j, i - 1]) *
+                                                     (rho_old[j + 1, i] + rho_old[j, i] - rho_old[j + 1, i - 1] - rho_old[j, i - 1]))
+                lhs = 0.5 * rm**2 * np.sin(thm) * np.cos(thm) / dr * \
+                    (Omega2[j + 1, i] - Omega2[j, i - 1] - Omega2[j + 1, i - 1]) - \
+                    0.5 * rm * np.sin(thm)**2 / dth * \
+                    (Omega2[j + 1, i] + Omega2[j + 1, i - 1] - Omega2[j, i - 1])
+
+                coeff = 0.5 * rm**2 * \
+                    np.sin(thm) * np.cos(thm) / dr + \
+                    0.5 * rm * np.sin(thm)**2 / dth
+
+                Omega2[j, i] = (rhs - lhs) / coeff
+
+        # now finally find new p, rho
+        p[:, 0] = p_c
+        rho[:, 0] = rho_c
+
+        print(f"j0 = {j0}, K0 = {K0}")
+
+        def this_is_not_explicit(rho_guess, i, j):
+            p_guess = self.star.eos.p_from_rho(rho_guess, K0, r[i], th[j])
+
+            # print(
+                # f"rho_guess = {rho_guess}, p_guess = {p_guess}, p_m = {p[j, i - 1]}")
+
+            return (p_guess - p[j, i - 1]) - \
+                (0.5 / dr * (rho_guess + rho[j, i - 1]) * (Phi[j, i] - Phi[j, i - 1]) +
+                 1 / 8 * (r[i] + r[i - 1]) * np.sin(th[j])**2 * (rho_guess + rho[j, i - 1]) *
+                 (Omega2[j, i] + Omega2[j, i - 1]))
+
+        for j in range(nth):
+            for i in range(1, nr):
+                # print(
+                #     f"this_is_not_explicit(0) = {this_is_not_explicit(0,i,j)}, this_is_not_explicit(r_i-1) = {this_is_not_explicit(rho[j,i-1]*1.05,i,j)}")
+
+                if this_is_not_explicit(0,i,j) * this_is_not_explicit(rho[j,i-1]*1.05,i,j) > 0:
+                    # reached stellar surface so skip the rest
+                    rho[j,i:] = 0
+                    p[j,i:] = 0
+                    break
+
+                rho[j, i] = brentq(this_is_not_explicit, 0,
+                                   rho[j, i - 1]*1.05, args=(i, j))
+                p[j, i] = self.star.eos.p_from_rho(rho[j, i], K0, r[i], th[j])
+
+                if rho[j, i] <= 0:
+                    # reached stellar surface so skip the rest
+                    break
+
+        # check errors
+
+        rho_err = np.max(np.abs(rho - rho_old)) / np.max(rho)
+
+        print(f"Errors: rho_err = {rho_err}")
+
+        print(f"rho = {rho}")
+        print(f"Phi = {Phi}")
+
+        self.star.rho = rho
+        self.star.p = p
+
+        return rho_err
+
+    def solve(self, max_steps=100, delta=1e-3):
+
+        for i in range(max_steps):
+            print(f"Step {i}")
+            rho_err = self.step()
+
+            if rho_err <= delta:
+                print("Solution found!")
+                break
 
     def calc_mass(self):
         pass
