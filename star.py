@@ -4,7 +4,7 @@ from matplotlib.lines import Line2D
 from scipy.ndimage import zoom
 
 import eos
-from solvers import SCF, Newton, FSCF
+from solvers import SCF, Newton, FSCF, Roxburgh
 from rotation_laws import RigidRotation, VConstantRotation, JConstantRotation
 
 plt.rcParams.update({'font.size': 20, 'font.family': 'serif',
@@ -30,7 +30,7 @@ class Star(object):
         except KeyError:
             raise KeyError(f"EoS must be one of: {eoses.keys()}")
 
-        solvers = {"SCF": SCF, "Newton": Newton, "FSCF": FSCF}
+        solvers = {"SCF": SCF, "Newton": Newton, "FSCF": FSCF, "Roxburgh":Roxburgh}
         try:
             self.solver = solvers[solver](self)
         except KeyError:

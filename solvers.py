@@ -46,12 +46,14 @@ class Roxburgh(Solver):
 
         self.rhom = self.star.rho[:, 0]
 
+        self.gm = np.zeros_like(self.star.rho)
+
     def step(self):
         # solve Poisson for Phi given rho
         Phi = self.Phi_given_rho(self.star.rho)
 
         # solve for rho given Phi subject to rho(r,0) = rhom(r)
-        rho = self.rho_given_Phi
+        rho = self.rho_given_Phi(Phi)
 
         # test conversion
         rho_err = np.max(np.abs(rho - self.star.rho)) / np.max(rho)
@@ -77,34 +79,68 @@ class Roxburgh(Solver):
         Phi = np.zeros_like(self.star.Phi)
 
         W = np.array([[eval_legendre(2 * k, np.cos(th[n]))
-                       for n in range(nk)] for k in range(nk)])
+                       for k in range(nk)] for n in range(nk)])
 
         ck = np.zeros((nr, nk))
         fk = np.zeros((nr, nk))
 
         for i in range(nr):
-            ck[i, :] = np.linalg.matmul(np.linalg.inv(W), rho[i, :nk])
+            ck[i, :] = np.linalg.inv(W) @ rho[i, :nk]
 
-        for k in range(nth):
+        # for k in range(nth):
             # solve equation 12 using shooting
 
-            def dfdr(x, _r):
-                y = np.zeros_like(x)
-                y[:, 0] = 4 * np.pi * self.star.G * ck[:, k] - 2 / \
-                    _r * x[:, 0] + 2 * k * (k + 1) * x[:, 0] / _r**2
-                y[:, 1] = x[:, 0]
+            # def dfdr(x, _r, dfdr0):
+            #     if _r == 0:
+            #         return np.array([0, dfdr0])
+            #     else:
+            #         _ck = np.interp(_r, r, ck[:,k])
+            #         print(_ck)
+            #         return np.array([4 * np.pi * self.star.G * _ck - 2 /
+            #                 _r * x[0] + 2 * k * (k + 1) * x[1] / _r**2,
+            #                 x[0]])
+            #
+            # def shoot_me(dfdr0):
+            #     _fk = odeint(dfdr, [dfdr0, 0], r, args=(dfdr0,))
+            #
+            #     print(f"_fk = {_fk[-1,:]}")
+            #
+            #     # calculate boundary condition at r=Rs
+            #     return (2 * k + 1) * _fk[-1, 1] + r[-1] * _fk[-1, 0]
+            #
+            # s_min = -1
+            # s_max = 1
+            #
+            # if shoot_me(s_min) * shoot_me(s_max) > 0:
+            #     s_min *= 10
+            #
+            # # if shoot_me(s_min) * shoot_me(s_max) > 0:
+            # #     s_max *= 10
+            #
+            # print(f"shoot_me({s_min}) = {shoot_me(s_min)}, shoot_me({s_max}) = {shoot_me(s_max)}")
+            # dfdr0 = brentq(shoot_me, s_min, s_max)
+            #
+            # fk[:, k] = odeint(dfdr, [dfdr0, 0], r)[:, 1]
 
-                return y
+        for i in range(1,nr):
 
-            def shoot_me(dfdr0):
-                _fk = odeint(dfdr, [dfdr0, 0], r)
+            for k in range(nk):
 
-                # calculate boundary condition at r=Rs
-                return (2 * k + 1) * _fk[-1, 1] + r[-1] * _fk[-1, 0]
+                I = ck[:, k] * r**(2*k+2)
 
-            dfdr0 = brentq(shoot_me, -1, 1)
+                lk = 4 * np.pi * self.star.G / ((4 * k + 1) * self.Rs**(4*k+1)) * simps(I, r)
 
-            fk[:, k] = odeint(dfdr, [dfdr0, 0], r)[:, 1]
+                outer_I = np.zeros_like(r[i:])
+
+                for j in range(i, nr):
+
+                        inner_I = np.zeros_like(r[:j+1])
+                        for n in range(j+1):
+                            inner_I[n] = ck[n, k] * r[n]**(2*k+2)
+
+                        outer_I[j-i] = 4 * np.pi * self.star.G / r[j]**(4*k+2) * simps(inner_I, r[:j+1])
+
+                fk[i, k] = -r[i]**(2*k) * simps(outer_I, r[i:]) - lk * r[i]**(2*k)
 
         # now given fk we can find Phi
         for i in range(nr):
@@ -114,18 +150,7 @@ class Roxburgh(Solver):
 
         return Phi
 
-        # for i in range(nr):
-        #
-        #     lk = np.zeros(nth)
-        #     for k in range(nth):
-        #
-        #         I = ck[:, k] * r**(2*k+2)
-        #
-        #         lk[k] = 4 * np.pi * self.star.G / ((4 * k + 1) * self.Rs**(4*k+1)) * simps(I, r)
-        #
-        #         inner_I = np.array([simps(c[:j, k] * r[:j]**(2*k+2)) for k in range(nr)])
-        #
-        #         I2 = 4 * np.pi * self.star.G / r[i:]**(4*k+2)
+
 
     def rho_given_Phi(self, Phi):
         r = self.star.r_coords
@@ -151,27 +176,42 @@ class Roxburgh(Solver):
 
         gm = np.zeros_like(Phi)
 
-        for i in range(nr):
-            for j in range(nth):
+        for i in range(1,nr):
+            for j in range(1,nth):
 
                 I = -1 / r[i] * (dPhidth[i, :j] - self.star.Omega2 * r[i]**2 * np.sin(th[:j]) * np.cos(
                     th[:j])) / (dPhidr[i, :j] - self.star.Omega2 * r[i] * np.sin(th[:j]**2))
+
+                # print(f"I = {I}")
 
                 log_gm = simps(I, th[:j])
 
                 gm[i, j] = np.exp(log_gm)
 
-            for j in range(nth):
+            if self.star.Omega2 == 0:
+                rho[i, :] =  self.rhom[i]
 
-                dgdth = -1 / r[i] * (dPhidth[i, :j] - self.star.Omega2 * r[i]**2 * np.sin(
-                    th[:j]) * np.cos(th[:j])) / (dPhidr[i, :j] - self.star.Omega2 * r[i] * np.sin(th[:j]**2))
+            else:
+                for j in range(1,nth):
 
-                I = -r[i] * self.star.Omega2 * np.cos(th[:j]) / (
-                    dPhidr[i, :j] - self.star.Omega2 * r[i] * np.sin(th[:j])**2) * 1 / dgdth
+                    dgdth = -1 / r[i] * (dPhidth[i, :j] - self.star.Omega2 * r[i]**2 * np.sin(
+                        th[:j]) * np.cos(th[:j])) / (dPhidr[i, :j] - self.star.Omega2 * r[i] * np.sin(th[:j]**2))
 
-                log_rho = simps(I, gm[i, :j]) + np.log(self.rhom[i])
+                    I = np.zeros(j)
 
-                rho[i, j] = np.exp(log_rho)
+                    for k in range(j):
+                        if not dgdth[k] == 0:
+                            I[k] = -r[i] * self.star.Omega2 * np.cos(th[k]) / (
+                                dPhidr[i, k] - self.star.Omega2 * r[i] * np.sin(th[k])**2) * 1 / dgdth[k]
+
+                    # print(f"I = {I}")
+                    log_rho = simps(I, gm[i, :j]) #+ np.log(self.rhom[i])
+                    # print(f"log_rho = {log_rho}")
+
+                    rho[i, j] = np.exp(log_rho) * self.rhom[i]
+
+        # save characteristics for later
+        self.gm = gm
 
         return rho
 
@@ -195,10 +235,18 @@ class Roxburgh(Solver):
         Ro_index = self.star.eos.A[1]
 
         for i in range(Ro_index):
-            P[i, 0] = np.simps(rho[i:Ro_index, 0] *
+            P[i, 0] = simps(rho[i:Ro_index, 0] *
                                dPhidr[i:Ro_index, 0], r[i:Ro_index])
 
         # now we have to do something clever and interpolate these along the characteristics. eurgh.
+        # given the value of gm(theta) and r at some theta, we can find the corresponding point
+        # rm along theta = thetam. We can then look up what the pressure is at this point
+        for j in range(1, nth):
+            rm = self.gm[1:, j] / r[1:]
+
+            P[1:, j] = np.interp(rm, r[1:], P[1:, 0])
+
+        return P
 
     def solve(self, max_steps=100, delta=1e-3):
 
